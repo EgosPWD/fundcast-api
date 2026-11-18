@@ -21,6 +21,7 @@ from app.domain.entities import (
     User,
 )
 from app.domain.errors import (
+    AdminProvisioningError,
     AuthenticationError,
     EmailAlreadyRegisteredError,
     InvalidInputError,
@@ -175,7 +176,7 @@ class TestGetMetrics:
 
         report = GetMetrics(models).execute()
 
-        assert report.active == second
+        assert report.active.id == second.id
         assert [v.version for v in report.versions] == [second.version, first.version]
 
     def test_works_without_models(self):
@@ -252,7 +253,7 @@ class TestRetrainModel:
 
         assert outcome.activated is False
         assert outcome.model_version.is_active is False
-        assert self.models.get_active() == self.active
+        assert self.models.get_active().id == self.active.id
         assert len(self.models.list_all()) == 2
 
     def test_uses_the_requested_file_id(self):
@@ -299,3 +300,49 @@ def test_register_user_rejects_admin_escalation_by_design():
     user = RegisterUser(users, FakePasswordHasher()).execute("x@mail.com", "secret123")
 
     assert isinstance(user, User) and user.role is Role.USER
+
+
+class TestReviewFindings:
+    """Regression tests for the CodeRabbit review of PR #3."""
+
+    def test_ensure_admin_refuses_an_existing_user_account(self):
+        users = InMemoryUserRepository()
+        RegisterUser(users, FakePasswordHasher()).execute("admin@example.com", "public-pass")
+
+        with pytest.raises(AdminProvisioningError, match="admin@example.com"):
+            EnsureAdmin(users, FakePasswordHasher()).execute("admin@example.com", "admin-pass")
+        account = users.get_by_email("admin@example.com")
+        assert account.role is Role.USER
+        assert account.password_hash == "hashed:public-pass"
+
+    def test_activated_outcome_reports_is_active(self):
+        retrain = TestRetrainModel().build(FakeTrainer(mae_log=0.30))
+
+        outcome = retrain.execute(file_id=None)
+
+        assert outcome.activated is True
+        assert outcome.model_version.is_active is True
+
+    def test_failure_while_saving_the_model_marks_the_file_failed(self):
+        case = TestRetrainModel()
+        retrain = case.build()
+
+        def broken_add(model_version):
+            raise RuntimeError("database down")
+
+        case.models.add = broken_add
+        with pytest.raises(RuntimeError, match="database down"):
+            retrain.execute(file_id=None)
+        assert case.files.get_by_id(case.upload.id).status is TrainingFileStatus.FAILED
+        assert case.lock.taken is False
+
+    def test_upload_deletes_the_stored_file_if_registration_fails(self):
+        storage, files = FakeFileStorage(), InMemoryTrainingFileRepository()
+
+        def broken_add(training_file):
+            raise RuntimeError("database down")
+
+        files.add = broken_add
+        with pytest.raises(RuntimeError, match="database down"):
+            UploadTrainingFile(storage, FakeTrainer(), files).execute(99, "rounds.csv", b"a\n")
+        assert storage.files == {}

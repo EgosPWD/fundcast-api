@@ -21,11 +21,12 @@ class UploadTrainingFile:
         stored_path = self._storage.save(filename, content)
         try:
             rows = self._trainer.validate_dataset(stored_path)
+            return self._files.add(
+                TrainingFile(
+                    filename=filename, stored_path=stored_path, rows=rows, uploaded_by=uploader_id
+                )
+            )
         except Exception:
+            # No orphan files: whatever fails after saving removes the stored CSV.
             self._storage.delete(stored_path)
             raise
-        return self._files.add(
-            TrainingFile(
-                filename=filename, stored_path=stored_path, rows=rows, uploaded_by=uploader_id
-            )
-        )

@@ -29,7 +29,8 @@ def is_stdlib(module: str) -> bool:
     ("layer", "allowed_prefixes"),
     [
         ("domain", ("app.domain",)),
-        ("application", ("app.domain", "app.application")),
+        # Use cases may import ports, never another use case (AGENTS.md section 5).
+        ("application", ("app.domain", "app.application.ports")),
     ],
 )
 def test_inner_layers_only_import_stdlib_and_inner_layers(layer, allowed_prefixes):

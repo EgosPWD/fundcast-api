@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.application.ports.model_repo import ModelVersionRepository
@@ -54,16 +54,23 @@ class RetrainModel:
 
     def _retrain(self, training_file: TrainingFile) -> RetrainOutcome:
         assert training_file.id is not None
-        version = self._models.next_version_number()
         try:
-            result = self._trainer.train(
-                [self._baseline_dataset_path, training_file.stored_path],
-                self._params,
-                f"{self._artifacts_dir}/model_v{version}.joblib",
-            )
+            outcome = self._train_and_register(training_file)
         except Exception:
+            # Training, saving or activation failed: the file must not look pending.
+            # A version saved before an activation failure stays inactive and auditable.
             self._files.update_status(training_file.id, TrainingFileStatus.FAILED)
             raise
+        self._files.update_status(training_file.id, TrainingFileStatus.USED)
+        return outcome
+
+    def _train_and_register(self, training_file: TrainingFile) -> RetrainOutcome:
+        version = self._models.next_version_number()
+        result = self._trainer.train(
+            [self._baseline_dataset_path, training_file.stored_path],
+            self._params,
+            f"{self._artifacts_dir}/model_v{version}.joblib",
+        )
         active = self._models.get_active()
         activate = should_activate(result.metrics, active.metrics if active else None)
         saved = self._models.add(
@@ -79,5 +86,6 @@ class RetrainModel:
         )
         if activate and saved.id is not None:
             self._models.activate(saved.id)
-        self._files.update_status(training_file.id, TrainingFileStatus.USED)
+            # Repositories return copies: reflect the activation in the returned value.
+            saved = replace(saved, is_active=True)
         return RetrainOutcome(model_version=saved, activated=activate)
