@@ -1,0 +1,13 @@
+from typing import Protocol
+
+from app.domain.entities import TrainingFile, TrainingFileStatus
+
+
+class TrainingFileRepository(Protocol):
+    def add(self, training_file: TrainingFile) -> TrainingFile: ...
+
+    def get_by_id(self, training_file_id: int) -> TrainingFile | None: ...
+
+    def get_latest(self) -> TrainingFile | None: ...
+
+    def update_status(self, training_file_id: int, status: TrainingFileStatus) -> None: ...
