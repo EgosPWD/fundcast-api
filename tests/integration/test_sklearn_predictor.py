@@ -87,6 +87,16 @@ def test_refuses_to_load_files_outside_the_artifacts_dir(tmp_path):
         predictor.predict_log10(str(outside), features())
 
 
+@pytest.mark.parametrize("columns", [None, "year", [], [1, 2], ["year", None]])
+def test_invalid_column_metadata_raises_model_not_available(tmp_path, columns):
+    pipeline = joblib.load(BASELINE)["pipeline"]
+    joblib.dump({"pipeline": pipeline, "columns": columns}, tmp_path / "bad_columns.joblib")
+    predictor = SklearnPredictor(artifacts_dir=str(tmp_path))
+
+    with pytest.raises(ModelNotAvailableError, match="columns"):
+        predictor.predict_log10(str(tmp_path / "bad_columns.joblib"), features())
+
+
 def test_malformed_bundle_raises_model_not_available(tmp_path):
     joblib.dump({"pipeline": None}, tmp_path / "broken.joblib")
     predictor = SklearnPredictor(artifacts_dir=str(tmp_path))

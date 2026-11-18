@@ -62,7 +62,14 @@ class SklearnPredictor:
         bundle = joblib.load(path)
         if not isinstance(bundle, dict) or not REQUIRED_BUNDLE_KEYS <= bundle.keys():
             raise ModelNotAvailableError("Model artifact has an invalid format")
-        pipeline, columns = bundle["pipeline"], list(bundle["columns"])
+        pipeline, columns = bundle["pipeline"], bundle["columns"]
+        if (
+            not isinstance(columns, (list, tuple))
+            or not columns
+            or not all(isinstance(c, str) for c in columns)
+        ):
+            raise ModelNotAvailableError("Model artifact has invalid columns metadata")
+        columns = list(columns)
         if not hasattr(pipeline, "predict"):
             raise ModelNotAvailableError("Model artifact has no usable pipeline")
         return _LoadedModel(pipeline, columns, _numeric_columns(pipeline, columns))
