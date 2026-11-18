@@ -1,4 +1,8 @@
-"""In-memory fakes of the application ports, for use-case unit tests."""
+"""In-memory fakes of the application ports, for use-case unit tests.
+
+Repositories return copies, like a real database: a fake that hands out its stored
+objects hides bugs where a use case relies on in-place mutation.
+"""
 
 from collections.abc import Sequence
 from dataclasses import replace
@@ -59,13 +63,15 @@ class InMemoryModelVersionRepository:
     def add(self, model_version: ModelVersion) -> ModelVersion:
         stored = replace(model_version, id=len(self.versions) + 1, created_at=NOW)
         self.versions[stored.id] = stored
-        return stored
+        return replace(stored)
 
     def get_active(self) -> ModelVersion | None:
-        return next((v for v in self.versions.values() if v.is_active), None)
+        active = next((v for v in self.versions.values() if v.is_active), None)
+        return replace(active) if active else None
 
     def list_all(self) -> list[ModelVersion]:
-        return sorted(self.versions.values(), key=lambda v: v.version, reverse=True)
+        rows = sorted(self.versions.values(), key=lambda v: v.version, reverse=True)
+        return [replace(v) for v in rows]
 
     def activate(self, model_version_id: int) -> None:
         for v in self.versions.values():

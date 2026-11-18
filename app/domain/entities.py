@@ -76,6 +76,11 @@ UNDISCLOSED_WARNING = (
 )
 
 
+def normalize_email(email: str) -> str:
+    """Emails are compared case-insensitively and without surrounding spaces."""
+    return (email or "").strip().lower()
+
+
 def _clean_optional(value: str | None) -> str | None:
     if value is None:
         return None

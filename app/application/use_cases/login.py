@@ -1,7 +1,7 @@
 from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.token_service import TokenClaims, TokenService
 from app.application.ports.user_repo import UserRepository
-from app.application.use_cases.register_user import normalize_email
+from app.domain.entities import normalize_email
 from app.domain.errors import AuthenticationError
 
 
