@@ -173,7 +173,7 @@ Ramas con Pull Requests pequeños (uno por paso).
 ### Flujo de Git (Git Flow)
 - `main`: solo versiones estables y entregables. Nunca se hace commit directo.
 - `develop`: rama de integración. Todo trabajo nuevo sale de aquí y vuelve aquí.
-- `feature/<nombre>`: una por paso del orden de trabajo (ej. `feature/domain-ports`, `feature/ml-pipeline`). Sale de `develop` y vuelve por Pull Request a `develop`.
+- `feature/<nombre>`: una por paso del orden de trabajo con un nombre que describa lo que entrega (ej. `feature/model-inference-adapter`, `feature/postgres-persistence-and-migrations`). Sale de `develop` y vuelve por Pull Request a `develop`.
 - `release/<versión>`: sale de `develop` para preparar una entrega; se fusiona en `main` (con tag `vX.Y.Z`) y de vuelta en `develop`.
 - `hotfix/<nombre>`: sale de `main` para corregir algo urgente; se fusiona en `main` y en `develop`.
 
