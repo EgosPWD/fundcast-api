@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+
+# datos y modelos (se generan, no se versionan)
+artifacts/*
+!artifacts/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+*.joblib
+*.csv
+
+# docker
+pgdata/
+
+# agent tooling (local, not versioned)
+.atl/
+odd/
