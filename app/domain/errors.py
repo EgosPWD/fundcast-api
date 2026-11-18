@@ -35,3 +35,7 @@ class RetrainInProgressError(DomainError):
 
 class ModelNotAvailableError(DomainError):
     """No active model version can serve predictions (HTTP 503)."""
+
+
+class AdminProvisioningError(DomainError):
+    """The configured admin email belongs to a non-admin account (startup fails)."""
