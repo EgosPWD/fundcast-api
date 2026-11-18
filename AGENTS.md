@@ -12,7 +12,7 @@ Un notebook de Colab (`notebooks/Startups_Monto_CRISP_ML.ipynb`) ya cubre explor
 - Modelo final: `HistGradientBoostingRegressor` dentro de un `Pipeline` de scikit-learn.
   Parámetros ganadores (GridSearch): `learning_rate=0.05, max_iter=400, max_leaf_nodes=31, min_samples_leaf=10`.
 - Métricas en test (3.190 filas): R² 0,620 · MAE_log 0,352 · RMSE_log 0,494 · MdAPE 52,5 % · cobertura ±50 % = 47,9 % · línea base (mediana) R² 0.
-- Artefacto del modelo: un único archivo, `artifacts/modelo_rondas.joblib` (generado por el notebook, git-ignored). Es un `dict` con las claves `"pipeline"`, `"columns"`, `"restricciones"`, `"metricas_test"` y `"parametros"`.
+- Artefacto del modelo: un único archivo, `artifacts/modelo_rondas.joblib` (generado por el notebook, versionado en git como modelo base). Es un `dict` con las claves `"pipeline"`, `"columns"`, `"restricciones"`, `"metricas_test"` y `"parametros"`.
 - El R² real es ≈ 0,62. No intentes "subir el puntaje" con trucos.
 
 ## 2. Reglas de datos que NO se pueden violar
@@ -105,7 +105,7 @@ fundcast-api/
 │       └── outbound/            # ml/ (cleaning, features, sklearn_trainer, sklearn_predictor),
 │                                # postgres/ (models, session, *_repo), storage/
 ├── tests/                       # unit/ (repos falsos en memoria), integration/ (TestClient)
-├── artifacts/                   # modelos .joblib versionados (git-ignored)
+├── artifacts/                   # modelo_rondas.joblib en git; los que genera /retrain, git-ignored
 ├── data/uploads/                # CSV subidos (git-ignored)
 ├── db/                          # schema.sql y diagrama ER
 ├── docs/                        # openapi.json
