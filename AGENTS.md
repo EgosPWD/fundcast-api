@@ -170,5 +170,20 @@ El cronograma, el documento de CRISP-ML(Q), el video y la interfaz se entregan a
 
 Ramas con Pull Requests pequeños (uno por paso).
 
+### Flujo de Git (Git Flow)
+- `main`: solo versiones estables y entregables. Nunca se hace commit directo.
+- `develop`: rama de integración. Todo trabajo nuevo sale de aquí y vuelve aquí.
+- `feature/<nombre>`: una por paso del orden de trabajo (ej. `feature/domain-ports`, `feature/ml-pipeline`). Sale de `develop` y vuelve por Pull Request a `develop`.
+- `release/<versión>`: sale de `develop` para preparar una entrega; se fusiona en `main` (con tag `vX.Y.Z`) y de vuelta en `develop`.
+- `hotfix/<nombre>`: sale de `main` para corregir algo urgente; se fusiona en `main` y en `develop`.
+
+### Commits (Conventional Commits)
+Formato: `<tipo>(<alcance opcional>): <descripción en inglés, imperativo, minúscula>`.
+- Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`, `perf`, `style`.
+- Ejemplos: `feat(domain): add funding round entity`, `test(use-cases): cover predict with null fields`, `build(docker): pin python 3.12 base image`.
+- Cambios incompatibles en el contrato de la API: `feat!:` o pie `BREAKING CHANGE:` (ver sección 10).
+- Commits pequeños y coherentes: cada uno con su código y sus pruebas.
+- Sin atribuciones de IA (`Co-Authored-By` u otras) en los mensajes.
+
 ## 13. Pendiente
 - **Confirmar los nombres de las 19 columnas del CSV real.** El contrato usa los nombres conocidos; verificarlos contra `global_startup_funding_sample.csv` antes del paso 2.
