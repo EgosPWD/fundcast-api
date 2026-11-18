@@ -79,7 +79,7 @@ Activar la nueva versión solo si `MAE_log_nuevo <= MAE_log_activo + 0.01`; si n
 
 ## 5. Arquitectura hexagonal
 ```
-startup-funding-api/
+fundcast-api/
 ├── AGENTS.md
 ├── CLAUDE.md                    # solo enlaza a AGENTS.md
 ├── README.md
