@@ -178,12 +178,16 @@ Ramas con Pull Requests pequeños (uno por paso).
 - `hotfix/<nombre>`: sale de `main` para corregir algo urgente; se fusiona en `main` y en `develop`.
 
 ### Commits (Conventional Commits)
-Formato: `<tipo>(<alcance opcional>): <descripción en inglés, imperativo, minúscula>`.
+Formato: `<tipo>(<alcance opcional>): <descripción en español, imperativo, minúscula>`. El `<tipo>` y el alcance quedan en inglés (son parte del estándar y nombres técnicos).
 - Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`, `perf`, `style`.
-- Ejemplos: `feat(domain): add funding round entity`, `test(use-cases): cover predict with null fields`, `build(docker): pin python 3.12 base image`.
+- Ejemplos: `feat(domain): agrega la entidad de ronda de financiación`, `test(use-cases): cubre la predicción con campos nulos`, `build(docker): fija la imagen base python 3.12`.
 - Cambios incompatibles en el contrato de la API: `feat!:` o pie `BREAKING CHANGE:` (ver sección 10).
 - Commits pequeños y coherentes: cada uno con su código y sus pruebas.
 - Sin atribuciones de IA (`Co-Authored-By` u otras) en los mensajes.
+
+### Pull Requests
+- Título y descripción **en español** (el título sigue el formato de Conventional Commits, ej. `feat(ml): adaptador de predicción con el modelo base`).
+- Cada PR pide revisión con IA comentando `@coderabbitai review`; los hallazgos válidos se corrigen, se responde en el hilo y se resuelve antes de fusionar.
 
 ## 13. Columnas del CSV (verificadas)
 Columnas reales de `global_startup_funding_sample.csv` (19):
