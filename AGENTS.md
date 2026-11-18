@@ -12,7 +12,7 @@ Un notebook de Colab (`notebooks/Startups_Monto_CRISP_ML.ipynb`) ya cubre explor
 - Modelo final: `HistGradientBoostingRegressor` dentro de un `Pipeline` de scikit-learn.
   Parámetros ganadores (GridSearch): `learning_rate=0.05, max_iter=400, max_leaf_nodes=31, min_samples_leaf=10`.
 - Métricas en test (3.190 filas): R² 0,620 · MAE_log 0,352 · RMSE_log 0,494 · MdAPE 52,5 % · cobertura ±50 % = 47,9 % · línea base (mediana) R² 0.
-- Una red neuronal (MLP 512) se probó y rinde peor (R² 0,607). Solo es comparación; NO se expone en la API.
+- Artefacto del modelo: un único archivo, `artifacts/modelo_rondas.joblib` (generado por el notebook, git-ignored). Es un `dict` con las claves `"pipeline"`, `"columns"`, `"restricciones"`, `"metricas_test"` y `"parametros"`.
 - El R² real es ≈ 0,62. No intentes "subir el puntaje" con trucos.
 
 ## 2. Reglas de datos que NO se pueden violar
@@ -126,7 +126,7 @@ fundcast-api/
 | GET | `/health` | público | estado |
 
 Errores: 401 sin token, 403 sin permiso, 422 entrada inválida, 409 si ya hay un reentrenamiento en curso.
-Validar el CSV subido: columnas obligatorias del dataset original, tamaño máximo 20 MB, extensión `.csv`; nunca ejecutar nada de su contenido.
+Validar el CSV subido: columnas obligatorias (sección 13), tamaño máximo 20 MB, extensión `.csv`; nunca ejecutar nada de su contenido.
 Swagger automático en `/docs`; exportar `docs/openapi.json`.
 
 ## 7. Base de datos (PostgreSQL, migraciones con Alembic)
@@ -140,8 +140,8 @@ Generar `db/schema.sql` y el diagrama ER (dbdiagram.io o mermaid).
 ## 8. Seguridad y configuración
 Variables (`.env`, nunca en git): `DB_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `JWT_ALGORITHM=HS256`, `JWT_EXPIRE_MINUTES`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ARTIFACTS_DIR`, `UPLOADS_DIR`, `CORS_ORIGINS`.
 Contraseñas con bcrypt. Crear el admin al arrancar si no existe.
-**`joblib.load` solo sobre archivos generados por este servicio**, nunca sobre archivos subidos por usuarios (deserialización insegura).
-Fijar la versión de scikit-learn igual a la del entrenamiento (`TargetEncoder` requiere ≥ 1.3).
+**`joblib.load` solo sobre artefactos propios del proyecto** (`modelo_rondas.joblib` del notebook y los que genera `/retrain` en `ARTIFACTS_DIR`), nunca sobre archivos subidos por usuarios (deserialización insegura).
+scikit-learn está fijado en **`1.6.1`** (`requirements.txt`), la misma versión con la que se entrenó `modelo_rondas.joblib`. No cambiarla sin regenerar el modelo (`TargetEncoder` requiere ≥ 1.3).
 
 ## 9. Pruebas mínimas (pytest)
 Casos de uso con repositorios falsos; login y permisos (403 a `user` en `/retrain`); `/predict` con campos mínimos y con nulos; categoría desconocida no rompe; historial filtrado por usuario; subida de CSV inválido devuelve 422.
@@ -185,5 +185,11 @@ Formato: `<tipo>(<alcance opcional>): <descripción en inglés, imperativo, min�
 - Commits pequeños y coherentes: cada uno con su código y sus pruebas.
 - Sin atribuciones de IA (`Co-Authored-By` u otras) en los mensajes.
 
-## 13. Pendiente
-- **Confirmar los nombres de las 19 columnas del CSV real.** El contrato usa los nombres conocidos; verificarlos contra `global_startup_funding_sample.csv` antes del paso 2.
+## 13. Columnas del CSV (verificadas)
+Columnas reales de `global_startup_funding_sample.csv` (19):
+`round_id`, `announced_date`, `year`, `company_name`, `company_domain`, `country`, `city`, `sector`, `founded_year`, `stage`, `amount_usd`, `amount_status`, `lead_investor`, `investor_count`, `news_mentions`, `news_source`, `news_url`, `news_excerpt`, `fliar_profile_url`.
+
+**Obligatorias en un CSV para `/retrain`:** `announced_date`, `year`, `company_domain`, `founded_year`, `stage`, `sector`, `country`, `city`, `lead_investor`, `investor_count`, `news_mentions`, `news_source`, `amount_usd`, `amount_status`.
+- `company_domain` es obligatoria: con ella se calcula el monto de la ronda anterior de cada empresa (`prev_log_amount`).
+- Opcionales (no entran al modelo): `round_id`, `company_name`, `news_url`, `fliar_profile_url`.
+- **NUNCA usar `news_excerpt` como variable** (ver sección 2).
