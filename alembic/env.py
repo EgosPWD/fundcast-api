@@ -13,7 +13,8 @@ if config.config_file_name is not None:
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:
     raise RuntimeError("DATABASE_URL is not set")
-config.set_main_option("sqlalchemy.url", database_url)
+# ConfigParser treats "%" as interpolation: escape it so percent-encoded passwords work.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
