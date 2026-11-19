@@ -12,6 +12,7 @@ from app.adapters.outbound.ml import cleaning, features
 from app.adapters.outbound.ml.sklearn_trainer import SklearnTrainer, stratified_split
 from app.application.ports.trainer import TrainingResult
 from app.domain.entities import STAGE_RANK, FundingRound
+from app.domain.errors import InsufficientTrainingDataError
 
 DATASET = Path(__file__).resolve().parents[2] / "data" / "global_startup_funding_sample.csv"
 ARTIFACT_KEYS = {"pipeline", "columns", "criterios", "metricas_test", "parametros",
@@ -113,3 +114,44 @@ def test_train_with_funding_round_entities_works_end_to_end(tmp_path):
     assert set(artifact) == ARTIFACT_KEYS
     assert artifact["lead_freq_map"]["Fund 1"] == 12
     assert "news_excerpt" not in artifact["columns"]
+
+
+def test_constant_amount_raises_insufficient_training_data(tmp_path):
+    """CodeRabbit review of PR #7: with one repeated amount qcut leaves every stratum
+    missing; that must be a 422-style error, not a ValueError from int(NaN)."""
+    rounds = small_rounds()
+    for r in rounds:
+        r.amount_usd = 1_000_000.0
+
+    with pytest.raises(InsufficientTrainingDataError):
+        SklearnTrainer().train(rounds, SklearnTrainer.WINNING_PARAMS, str(tmp_path / "m.joblib"))
+
+
+def test_entity_nulls_train_like_csv_nulls(tmp_path):
+    """CodeRabbit review of PR #7: None in a categorical must reach the pipeline as NaN
+    (imputed as "Unknown"), exactly as read_csv delivers it, or training and serving skew."""
+    rounds = small_rounds()
+    for i, r in enumerate(rounds):
+        if i % 3 == 0:
+            r.news_source = None
+            r.city = None
+    frame = pd.DataFrame([{c: (np.nan if getattr(r, c) is None else getattr(r, c))
+                           for c in features_columns()} for r in rounds])
+    trainer = SklearnTrainer()
+
+    trainer.train(rounds, SklearnTrainer.WINNING_PARAMS, str(tmp_path / "entities.joblib"))
+    trainer.train_from_frame(frame, SklearnTrainer.WINNING_PARAMS, str(tmp_path / "csv.joblib"))
+
+    def learned_categories(name):
+        enc = (joblib.load(tmp_path / name)["pipeline"].named_steps["prep"]
+               .named_transformers_["cat"].named_steps["target_enc"])
+        return [sorted(map(str, c)) for c in enc.categories_]
+
+    news_source = features.COLS_CAT.index("news_source")
+    assert "None" not in learned_categories("entities.joblib")[news_source]
+    assert learned_categories("entities.joblib") == learned_categories("csv.joblib")
+
+
+def features_columns() -> list[str]:
+    from app.adapters.outbound.ml.sklearn_trainer import _ROUND_COLUMNS
+    return _ROUND_COLUMNS

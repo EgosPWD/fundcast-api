@@ -37,6 +37,10 @@ _ROUND_COLUMNS = [
 ]
 
 
+def _nan_if_none(value: Any) -> Any:
+    return np.nan if value is None else value
+
+
 def stratified_split(X: pd.DataFrame, y: pd.Series) -> tuple:
     """80/20 split stratified by deciles of y; deciles with equal edges are merged.
 
@@ -47,6 +51,11 @@ def stratified_split(X: pd.DataFrame, y: pd.Series) -> tuple:
             f"Not enough usable rows to train: {len(y)} (at least {N_STRATA} needed)"
         )
     strata = pd.qcut(y, q=N_STRATA, labels=False, duplicates="drop")
+    if strata.isna().any():
+        # A constant amount leaves a single bin edge: qcut assigns no stratum at all.
+        raise InsufficientTrainingDataError(
+            "Not enough distinct amounts for the stratified split"
+        )
     smallest = int(strata.value_counts().min())
     if smallest < MIN_ROWS_PER_STRATUM:
         raise InsufficientTrainingDataError(
@@ -112,7 +121,9 @@ class SklearnTrainer:
         self, rounds: Sequence[FundingRound], params: dict[str, Any], artifact_path: str
     ) -> TrainingResult:
         """Train from domain rounds, kept in the given order (ordered by id)."""
-        rows = [{col: getattr(r, col) for col in _ROUND_COLUMNS} for r in rounds]
+        # None must become NaN, as read_csv delivers nulls: SimpleImputer does not treat
+        # None as missing, so it would be learned as a category the predictor never sends.
+        rows = [{col: _nan_if_none(getattr(r, col)) for col in _ROUND_COLUMNS} for r in rounds]
         df = pd.DataFrame(rows, columns=_ROUND_COLUMNS)
         df["amount_usd"] = df["amount_usd"].astype(float)
         return self.train_from_frame(df, params, artifact_path)
