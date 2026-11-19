@@ -197,7 +197,9 @@ class TestUploadTrainingFile:
 
         assert training_file.id == 1
         assert training_file.rows == 250
-        assert training_file.status is TrainingFileStatus.UPLOADED
+        # Rows are not ingested into funding_rounds yet (step 7): never report "loaded".
+        assert training_file.status is TrainingFileStatus.FAILED
+        assert (training_file.rows_inserted, training_file.rows_rejected) == (0, 0)
         assert training_file.uploaded_by == 99
         assert self.storage.files[training_file.stored_path] == b"a,b\n1,2\n"
 
@@ -231,7 +233,7 @@ class TestRetrainModel:
         self.lock = lock or FakeRetrainLock()
         self.active = add_active_model(self.models)
         self.upload = self.files.add(TrainingFile(filename="new.csv", stored_path="up/new.csv",
-                                                  rows=10, uploaded_by=99))
+                                                  rows=10, uploaded_by=99, status=TrainingFileStatus.LOADED))
         return RetrainModel(self.files, self.models, self.trainer, self.lock,
                             baseline_dataset_path="data/base.csv", artifacts_dir="artifacts",
                             params=self.PARAMS)
@@ -245,7 +247,7 @@ class TestRetrainModel:
         assert outcome.model_version.version == 2
         assert outcome.model_version.training_file_id == self.upload.id
         assert self.models.get_active().version == 2
-        assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.USED
+        assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.LOADED
         assert self.lock.taken is False
 
     def test_worse_model_is_saved_inactive(self):
@@ -259,11 +261,11 @@ class TestRetrainModel:
     def test_uses_the_requested_file_id(self):
         retrain = self.build()
         other = self.files.add(TrainingFile(filename="b.csv", stored_path="up/b.csv", rows=5,
-                                            uploaded_by=99))
+                                            uploaded_by=99, status=TrainingFileStatus.LOADED))
         retrain.execute(file_id=self.upload.id)
 
         assert self.trainer.train_calls[0][0] == ["data/base.csv", "up/new.csv"]
-        assert other.status is TrainingFileStatus.UPLOADED
+        assert other.status is TrainingFileStatus.LOADED
 
     def test_unknown_file_id_raises_not_found(self):
         with pytest.raises(NotFoundError):
@@ -284,12 +286,13 @@ class TestRetrainModel:
             retrain.execute(file_id=None)
         assert self.trainer.train_calls == []
 
-    def test_training_failure_marks_file_failed_and_releases_lock(self):
+    def test_training_failure_keeps_the_load_status_and_releases_lock(self):
+        """A file's status describes its load, not later retrainings (AGENTS.md section 7)."""
         retrain = self.build(FakeTrainer(fail=RuntimeError("boom")))
 
         with pytest.raises(RuntimeError):
             retrain.execute(file_id=None)
-        assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.FAILED
+        assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.LOADED
         assert self.lock.taken is False
         assert len(self.models.list_all()) == 1
 
@@ -323,7 +326,7 @@ class TestReviewFindings:
         assert outcome.activated is True
         assert outcome.model_version.is_active is True
 
-    def test_failure_while_saving_the_model_marks_the_file_failed(self):
+    def test_failure_while_saving_the_model_releases_lock_and_keeps_load_status(self):
         case = TestRetrainModel()
         retrain = case.build()
 
@@ -333,7 +336,7 @@ class TestReviewFindings:
         case.models.add = broken_add
         with pytest.raises(RuntimeError, match="database down"):
             retrain.execute(file_id=None)
-        assert case.files.get_by_id(case.upload.id).status is TrainingFileStatus.FAILED
+        assert case.files.get_by_id(case.upload.id).status is TrainingFileStatus.LOADED
         assert case.lock.taken is False
 
     def test_upload_deletes_the_stored_file_if_registration_fails(self):
@@ -346,3 +349,9 @@ class TestReviewFindings:
         with pytest.raises(RuntimeError, match="database down"):
             UploadTrainingFile(storage, FakeTrainer(), files).execute(99, "rounds.csv", b"a\n")
         assert storage.files == {}
+
+
+def test_training_file_status_has_no_default():
+    """Every load must state its outcome explicitly (CodeRabbit review of PR #4)."""
+    with pytest.raises(TypeError):
+        TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=1, uploaded_by=1)

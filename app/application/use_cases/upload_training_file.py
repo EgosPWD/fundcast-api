@@ -1,7 +1,7 @@
 from app.application.ports.file_storage import FileStorage
 from app.application.ports.trainer import Trainer
 from app.application.ports.training_file_repo import TrainingFileRepository
-from app.domain.entities import MAX_TRAINING_FILE_BYTES, TrainingFile
+from app.domain.entities import MAX_TRAINING_FILE_BYTES, TrainingFile, TrainingFileStatus
 from app.domain.errors import InvalidTrainingFileError
 
 
@@ -21,9 +21,15 @@ class UploadTrainingFile:
         stored_path = self._storage.save(filename, content)
         try:
             rows = self._trainer.validate_dataset(stored_path)
+            # Ingesting the rows into funding_rounds arrives in step 7 (AGENTS.md section 12).
+            # Until then the load is recorded as failed with 0 rows inserted: never "loaded".
             return self._files.add(
                 TrainingFile(
-                    filename=filename, stored_path=stored_path, rows=rows, uploaded_by=uploader_id
+                    filename=filename,
+                    stored_path=stored_path,
+                    rows=rows,
+                    uploaded_by=uploader_id,
+                    status=TrainingFileStatus.FAILED,
                 )
             )
         except Exception:

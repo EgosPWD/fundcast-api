@@ -5,7 +5,7 @@ from app.application.ports.model_repo import ModelVersionRepository
 from app.application.ports.retrain_lock import RetrainLock
 from app.application.ports.trainer import Trainer
 from app.application.ports.training_file_repo import TrainingFileRepository
-from app.domain.entities import ModelVersion, TrainingFile, TrainingFileStatus, should_activate
+from app.domain.entities import ModelVersion, TrainingFile, should_activate
 from app.domain.errors import NotFoundError, RetrainInProgressError
 
 
@@ -53,16 +53,10 @@ class RetrainModel:
         return found
 
     def _retrain(self, training_file: TrainingFile) -> RetrainOutcome:
-        assert training_file.id is not None
-        try:
-            outcome = self._train_and_register(training_file)
-        except Exception:
-            # Training, saving or activation failed: the file must not look pending.
-            # A version saved before an activation failure stays inactive and auditable.
-            self._files.update_status(training_file.id, TrainingFileStatus.FAILED)
-            raise
-        self._files.update_status(training_file.id, TrainingFileStatus.USED)
-        return outcome
+        # A file's status describes its load into funding_rounds, not later retrainings
+        # (AGENTS.md section 7). A version saved before an activation failure stays
+        # inactive and auditable.
+        return self._train_and_register(training_file)
 
     def _train_and_register(self, training_file: TrainingFile) -> RetrainOutcome:
         version = self._models.next_version_number()
