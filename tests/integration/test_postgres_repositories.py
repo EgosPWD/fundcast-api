@@ -118,9 +118,9 @@ class TestTrainingFileRepository:
         files = SqlAlchemyTrainingFileRepository(session_factory)
         admin = users.add(User(email="admin@mail.com", password_hash="h", role=Role.ADMIN))
         files.add(TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=1,
-                               uploaded_by=admin.id))
+                               uploaded_by=admin.id, status=TrainingFileStatus.LOADED))
         latest = files.add(TrainingFile(filename="b.csv", stored_path="up/b.csv", rows=2,
-                                        uploaded_by=admin.id))
+                                        uploaded_by=admin.id, status=TrainingFileStatus.LOADED))
 
         files.update_status(latest.id, TrainingFileStatus.FAILED)
 
@@ -193,7 +193,7 @@ class TestFundingRoundRepository:
         files = SqlAlchemyTrainingFileRepository(session_factory)
         admin = users.add(User(email="admin@mail.com", password_hash="h", role=Role.ADMIN))
         upload = files.add(TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=1,
-                                        uploaded_by=admin.id))
+                                        uploaded_by=admin.id, status=TrainingFileStatus.LOADED))
         repo.add_many([
             funding_round("b", year=2023, month=6),
             funding_round("a", year=2023, month=2, training_file_id=upload.id),

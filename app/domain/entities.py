@@ -207,7 +207,9 @@ class TrainingFile:
     stored_path: str
     rows: int
     uploaded_by: int
-    status: TrainingFileStatus = TrainingFileStatus.LOADED
+    # No default: every load states its outcome explicitly, so a file is never
+    # reported as loaded before its rows reach funding_rounds.
+    status: TrainingFileStatus
     rows_inserted: int = 0
     rows_rejected: int = 0
     id: int | None = None
