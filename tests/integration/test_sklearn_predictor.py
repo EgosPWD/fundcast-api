@@ -1,4 +1,5 @@
 import math
+import warnings
 from pathlib import Path
 
 import joblib
@@ -13,6 +14,7 @@ from app.domain.errors import ModelNotAvailableError
 
 ARTIFACTS_DIR = Path(__file__).resolve().parents[2] / "artifacts"
 BASELINE = ARTIFACTS_DIR / "modelo_rondas.joblib"
+LEAD_FREQ_MAP = joblib.load(BASELINE)["lead_freq_map"]
 
 
 @pytest.fixture
@@ -24,7 +26,7 @@ def features(**overrides) -> dict:
     data = {"year": 2025, "founded_year": 2021, "stage": "Seed", "sector": "Fintech",
             "country": "United States"}
     data.update(overrides)
-    return FundingRoundInput(**data).to_features()
+    return FundingRoundInput(**data).to_features(history=None, lead_freq_map=LEAD_FREQ_MAP)
 
 
 def contract_example() -> dict:
@@ -43,8 +45,10 @@ def test_matches_the_pipeline_fed_with_csv_style_nulls(predictor):
     """Nulls must reach the pipeline as NaN, the way read_csv produced them at training time."""
     row = features(lead_investor=None, city=None, prev_amount_usd=None)
     bundle = joblib.load(BASELINE)
-    frame = pd.DataFrame([row], columns=bundle["columns"]).replace({None: np.nan})
-    frame = frame.astype({c: "float64" for c in MODEL_FEATURE_COLUMNS[:7]})
+    numeric = [c for name, _, cols in bundle["pipeline"].named_steps["prep"].transformers_
+               if name == "num" for c in cols]
+    frame = pd.DataFrame([{k: (np.nan if v is None else v) for k, v in row.items()}],
+                         columns=bundle["columns"]).astype({c: "float64" for c in numeric})
     expected = float(bundle["pipeline"].predict(frame)[0])
 
     assert predictor.predict_log10(str(BASELINE), row) == pytest.approx(expected)
@@ -103,3 +107,17 @@ def test_malformed_bundle_raises_model_not_available(tmp_path):
 
     with pytest.raises(ModelNotAvailableError):
         predictor.predict_log10(str(tmp_path / "broken.joblib"), features())
+
+
+def test_baseline_bundle_matches_the_14_column_contract(predictor):
+    bundle = joblib.load(BASELINE)
+
+    assert tuple(bundle["columns"]) == MODEL_FEATURE_COLUMNS
+    assert len(predictor.lead_frequency_map(str(BASELINE))) == 8_463
+    assert predictor.lead_frequency_map(str(BASELINE)) == bundle["lead_freq_map"]
+
+
+def test_prediction_raises_no_pandas_warning(predictor):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        predictor.predict_log10(str(BASELINE), features(lead_investor=None, city=None))
