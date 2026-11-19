@@ -90,7 +90,7 @@ Se aplican sobre **todas** las filas de `funding_rounds` (CSV original + cargas)
    - `lead_freq = lead_investor.map(lead_investor.value_counts())` (cuenta la propia fila; null si no hay líder).
    - `company_age = year - founded_year`; `stage_rank` con el mapa de la sección 3.
 6. Filas usables: `amount_status == "verified"` & `amount_usd` no nulo & `~amount_suspect_low`.
-7. Partición: `train_test_split(X, y, test_size=0.2, random_state=42, stratify=pd.qcut(y, q=10, labels=False))`, con `y = log_amount`.
+7. Partición: `train_test_split(X, y, test_size=0.2, random_state=42, stratify=pd.qcut(y, q=10, labels=False, duplicates="drop"))`, con `y = log_amount`. `duplicates="drop"` junta los deciles cuyos bordes coinciden (montos muy repetidos); con el CSV original no cambia nada y se reproduce el mismo split.
 8. Transformador (`ColumnTransformer`, `remainder="drop"`):
    - `"num"`: `SimpleImputer(strategy="median", add_indicator=True)` + `StandardScaler()`;
    - `"cat"`: `SimpleImputer(strategy="constant", fill_value="Unknown")` + `TargetEncoder(random_state=42)` (resto por defecto).
@@ -103,6 +103,8 @@ Cada reentrenamiento hace una **partición 80/20 estratificada NUEVA** sobre tod
 - Activación: la nueva versión se activa solo si `MAE_log_nuevo <= MAE_log_activo + 0.01`, comparando con el MAE **guardado** de la versión activa; si no, se guarda como inactiva y se avisa.
 - **Límite a documentar:** cada versión se mide sobre su propio test, así que una diferencia pequeña de MAE puede deberse al sorteo y no solo al modelo.
 - El nuevo artefacto guarda las mismas claves que el base, con `lead_freq_map` recalculado sobre toda la tabla.
+- Si después de juntar deciles algún estrato tiene menos de 2 filas usables (datos insuficientes para estratificar), `/retrain` responde **422** con el motivo.
+- **Un reentrenamiento que falla, por cualquier motivo, no toca el modelo activo**: la API sigue prediciendo con la versión anterior.
 
 ## 5. Arquitectura hexagonal
 ```
@@ -155,7 +157,7 @@ fundcast-api/
 | POST | `/retrain` | admin | reentrena con **todas** las filas de `funding_rounds` (partición nueva) |
 | GET | `/health` | público | estado |
 
-Errores: 401 sin token, 403 sin permiso, 422 entrada inválida, 409 si ya hay un reentrenamiento en curso.
+Errores: 401 sin token, 403 sin permiso, 422 entrada inválida (en `/retrain`, también si no hay filas suficientes para la partición estratificada), 409 si ya hay un reentrenamiento en curso.
 Validar el CSV subido: columnas obligatorias (sección 13), tamaño máximo 20 MB, extensión `.csv`, `year == año de announced_date`; nunca ejecutar nada de su contenido. Las filas con `company_age` negativa o `founded_year` nulo se rechazan (se cuentan en la respuesta). Las filas con un `round_id` que ya existe se ignoran.
 Swagger automático en `/docs`; exportar `docs/openapi.json`.
 
