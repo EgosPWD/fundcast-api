@@ -173,6 +173,32 @@ class TestPredictRound:
         sent = self.predictor.calls[0][1]
         assert (sent["n_prev_rounds"], sent["prev_log_amount"]) == (1, pytest.approx(5.0))
 
+    def test_known_company_without_earlier_rounds_uses_empty_stored_history(self):
+        """CodeRabbit review of PR #6: a known domain never falls back to client values."""
+        from datetime import date
+
+        from app.domain.entities import FundingRound
+
+        later = FundingRound(announced_date=date(2026, 1, 1), year=2026, company_domain="acme.io",
+                             founded_year=2020, stage="Seed", amount_status="verified",
+                             amount_usd=5e7)
+        predict = self.build([later])
+
+        predict.execute(7, round_input(year=2025, company_domain="acme.io", prev_rounds=9,
+                                       prev_amount_usd=1e5))
+
+        sent = self.predictor.calls[0][1]
+        assert (sent["n_prev_rounds"], sent["prev_log_amount"]) == (0, None)
+
+    def test_explicit_empty_lead_map_counts_only_the_round_itself(self):
+        predict = self.build()
+        self.predictor.lead_freq_map = {}
+        assert FakePredictor(lead_freq_map={}).lead_freq_map == {}
+
+        predict.execute(7, round_input(lead_investor="Y Combinator"))
+
+        assert self.predictor.calls[0][1]["lead_freq"] == 1
+
     def test_without_active_model_raises_and_saves_nothing(self):
         predictions = InMemoryPredictionRepository()
 

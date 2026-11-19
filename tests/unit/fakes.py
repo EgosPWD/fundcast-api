@@ -114,6 +114,9 @@ class InMemoryFundingRoundRepository:
     def count(self) -> int:
         return len(self.rounds)
 
+    def has_company(self, company_domain: str) -> bool:
+        return any(r.company_domain == company_domain for r in self.rounds)
+
     def history(self, company_domain: str, up_to_year: int):
         rows = [r for r in self.rounds if r.company_domain == company_domain and r.year <= up_to_year]
         return sorted(rows, key=lambda r: r.announced_date)
@@ -138,7 +141,7 @@ class FakeTokenService:
 class FakePredictor:
     def __init__(self, log10_value: float = 6.0, lead_freq_map=None) -> None:
         self.log10_value = log10_value
-        self.lead_freq_map = lead_freq_map or {"Y Combinator": 41}
+        self.lead_freq_map = {"Y Combinator": 41} if lead_freq_map is None else lead_freq_map
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def lead_frequency_map(self, artifact_path: str) -> dict[str, int]:

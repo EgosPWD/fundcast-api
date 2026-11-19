@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from app.domain.entities import MODEL_FEATURE_COLUMNS
 from app.domain.errors import ModelNotAvailableError
 
 REQUIRED_BUNDLE_KEYS = frozenset({"pipeline", "columns"})
@@ -75,6 +76,12 @@ class SklearnPredictor:
         ):
             raise ModelNotAvailableError("Model artifact has invalid columns metadata")
         columns = list(columns)
+        if tuple(columns) != MODEL_FEATURE_COLUMNS:
+            # A stale artifact (e.g. the old 13-column model) would silently receive NaN
+            # for the features it does not know: refuse it instead.
+            raise ModelNotAvailableError(
+                "Model artifact columns do not match the current feature contract"
+            )
         if not hasattr(pipeline, "predict"):
             raise ModelNotAvailableError("Model artifact has no usable pipeline")
         lead_freq_map = bundle.get("lead_freq_map", {})

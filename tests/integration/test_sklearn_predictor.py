@@ -91,7 +91,9 @@ def test_refuses_to_load_files_outside_the_artifacts_dir(tmp_path):
         predictor.predict_log10(str(outside), features())
 
 
-@pytest.mark.parametrize("columns", [None, "year", [], [1, 2], ["year", None]])
+@pytest.mark.parametrize("columns", [None, "year", [], [1, 2], ["year", None],
+                                     list(MODEL_FEATURE_COLUMNS[:-1]),
+                                     list(reversed(MODEL_FEATURE_COLUMNS))])
 def test_invalid_column_metadata_raises_model_not_available(tmp_path, columns):
     pipeline = joblib.load(BASELINE)["pipeline"]
     joblib.dump({"pipeline": pipeline, "columns": columns}, tmp_path / "bad_columns.joblib")
@@ -121,3 +123,29 @@ def test_prediction_raises_no_pandas_warning(predictor):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         predictor.predict_log10(str(BASELINE), features(lead_investor=None, city=None))
+
+
+def test_old_13_column_artifact_is_rejected(tmp_path):
+    """CodeRabbit review of PR #6: a stale but self-consistent artifact must not serve
+    predictions, or the missing n_prev_rounds / lead_freq would silently become NaN."""
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OrdinalEncoder
+
+    num = ["year", "company_age", "investor_count", "news_mentions", "has_lead_investor",
+           "prev_log_amount", "stage_rank"]
+    cat = ["stage", "sector", "country", "city", "lead_investor", "news_source"]
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({**{c: rng.random(30) for c in num}, **{c: ["a", "b"] * 15 for c in cat}})
+    prep = ColumnTransformer([("num", SimpleImputer(), num),
+                              ("cat", OrdinalEncoder(handle_unknown="use_encoded_value",
+                                                     unknown_value=-1), cat)])
+    old = Pipeline([("prep", prep), ("model", HistGradientBoostingRegressor(max_iter=5))])
+    old.fit(frame, rng.random(30))
+    joblib.dump({"pipeline": old, "columns": num + cat}, tmp_path / "old.joblib")
+
+    with pytest.raises(ModelNotAvailableError, match="columns"):
+        SklearnPredictor(artifacts_dir=str(tmp_path)).predict_log10(str(tmp_path / "old.joblib"),
+                                                                    features())

@@ -48,8 +48,12 @@ class PredictRound:
         return PredictionOutcome(prediction, estimate, active.version)
 
     def _company_history(self, round_input: FundingRoundInput) -> CompanyHistory | None:
-        """Stored rounds win over the client's values when the company is known."""
-        if round_input.company_domain is None:
+        """Stored rounds win over the client's values when the company is known.
+
+        A known company with no rounds up to `year` has an empty history (0, None):
+        the client's values are used only for companies that are not stored at all.
+        """
+        domain = round_input.company_domain
+        if domain is None or not self._funding_rounds.has_company(domain):
             return None
-        rounds = self._funding_rounds.history(round_input.company_domain, round_input.year)
-        return CompanyHistory.from_rounds(rounds) if rounds else None
+        return CompanyHistory.from_rounds(self._funding_rounds.history(domain, round_input.year))
