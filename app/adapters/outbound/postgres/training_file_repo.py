@@ -8,6 +8,7 @@ from app.domain.entities import TrainingFile, TrainingFileStatus
 def _to_domain(row: TrainingFileRow) -> TrainingFile:
     return TrainingFile(filename=row.filename, stored_path=row.stored_path, rows=row.rows,
                         uploaded_by=row.uploaded_by, status=TrainingFileStatus(row.status),
+                        rows_inserted=row.rows_inserted, rows_rejected=row.rows_rejected,
                         id=row.id, created_at=row.created_at)
 
 
@@ -20,7 +21,9 @@ class SqlAlchemyTrainingFileRepository:
             row = TrainingFileRow(filename=training_file.filename,
                                   stored_path=training_file.stored_path, rows=training_file.rows,
                                   uploaded_by=training_file.uploaded_by,
-                                  status=training_file.status.value)
+                                  status=training_file.status.value,
+                                  rows_inserted=training_file.rows_inserted,
+                                  rows_rejected=training_file.rows_rejected)
             session.add(row)
             session.flush()
             session.refresh(row)

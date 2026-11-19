@@ -13,12 +13,14 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from app.adapters.outbound.postgres.funding_round_repo import SqlAlchemyFundingRoundRepository
 from app.adapters.outbound.postgres.model_repo import SqlAlchemyModelVersionRepository
 from app.adapters.outbound.postgres.prediction_repo import SqlAlchemyPredictionRepository
 from app.adapters.outbound.postgres.session import make_engine, make_session_factory
 from app.adapters.outbound.postgres.training_file_repo import SqlAlchemyTrainingFileRepository
 from app.adapters.outbound.postgres.user_repo import SqlAlchemyUserRepository
 from app.domain.entities import (
+    FundingRound,
     FundingRoundInput,
     ModelMetrics,
     ModelVersion,
@@ -46,8 +48,8 @@ def session_factory():
 @pytest.fixture(autouse=True)
 def clean_tables(session_factory):
     with session_factory.begin() as session:
-        session.execute(text("TRUNCATE predictions, model_versions, training_files, users "
-                             "RESTART IDENTITY CASCADE"))
+        session.execute(text("TRUNCATE predictions, model_versions, funding_rounds, "
+                             "training_files, users RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
@@ -120,10 +122,11 @@ class TestTrainingFileRepository:
         latest = files.add(TrainingFile(filename="b.csv", stored_path="up/b.csv", rows=2,
                                         uploaded_by=admin.id))
 
-        files.update_status(latest.id, TrainingFileStatus.USED)
+        files.update_status(latest.id, TrainingFileStatus.FAILED)
 
         assert files.get_latest().id == latest.id
-        assert files.get_by_id(latest.id).status is TrainingFileStatus.USED
+        assert files.get_by_id(latest.id).status is TrainingFileStatus.FAILED
+        assert files.get_by_id(latest.id - 1).status is TrainingFileStatus.LOADED
         assert files.get_by_id(999) is None
 
 
@@ -149,3 +152,57 @@ class TestPredictionRepository:
         assert first_page.items[0].id > first_page.items[1].id
         assert first_page.items[0].input == round_input
         assert predictions.list(user_id=None, page=1, size=10).total == 4
+
+
+def funding_round(round_id, domain="acme.io", year=2024, month=1, amount=1_000_000.0, **extra):
+    from datetime import date
+
+    data = dict(round_id=round_id, announced_date=date(year, month, 1), year=year,
+                company_domain=domain, founded_year=2020, stage="Seed", amount_usd=amount,
+                amount_status="verified", sector="Fintech", country="Chile")
+    data.update(extra)
+    return FundingRound(**data)
+
+
+class TestFundingRoundRepository:
+    def test_add_many_keeps_file_order_and_skips_repeated_round_ids(self, session_factory):
+        repo = SqlAlchemyFundingRoundRepository(session_factory)
+        first = [funding_round("r3"), funding_round("r1"), funding_round(None),
+                 funding_round("r2", lead_investor="YC", news_source="TechCrunch")]
+
+        assert repo.add_many(first) == 4
+        assert repo.add_many([funding_round("r1"), funding_round("r4"), funding_round(None)]) == 2
+        rows = repo.list_all()
+
+        assert repo.count() == 6
+        assert [r.round_id for r in rows] == ["r3", "r1", None, "r2", "r4", None]
+        assert [r.id for r in rows] == sorted(r.id for r in rows)
+        assert rows[3].lead_investor == "YC" and rows[3].news_source == "TechCrunch"
+        assert rows[0].announced_date.year == 2024
+
+    def test_add_many_inserts_large_batches(self, session_factory):
+        repo = SqlAlchemyFundingRoundRepository(session_factory)
+
+        inserted = repo.add_many([funding_round(f"r{i}") for i in range(2_500)])
+
+        assert inserted == repo.count() == 2_500
+
+    def test_history_returns_company_rounds_up_to_year_in_date_order(self, session_factory,
+                                                                     users):
+        repo = SqlAlchemyFundingRoundRepository(session_factory)
+        files = SqlAlchemyTrainingFileRepository(session_factory)
+        admin = users.add(User(email="admin@mail.com", password_hash="h", role=Role.ADMIN))
+        upload = files.add(TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=1,
+                                        uploaded_by=admin.id))
+        repo.add_many([
+            funding_round("b", year=2023, month=6),
+            funding_round("a", year=2023, month=2, training_file_id=upload.id),
+            funding_round("future", year=2026),
+            funding_round("other", domain="other.io", year=2022),
+        ])
+
+        history = repo.history("acme.io", up_to_year=2025)
+
+        assert [r.round_id for r in history] == ["a", "b"]
+        assert history[0].training_file_id == upload.id
+        assert repo.history("missing.io", up_to_year=2025) == []

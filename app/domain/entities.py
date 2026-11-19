@@ -2,7 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -101,8 +101,9 @@ class Role(StrEnum):
 
 
 class TrainingFileStatus(StrEnum):
-    UPLOADED = "uploaded"
-    USED = "used"
+    """Outcome of loading an uploaded CSV into funding_rounds."""
+
+    LOADED = "loaded"
     FAILED = "failed"
 
 
@@ -206,7 +207,37 @@ class TrainingFile:
     stored_path: str
     rows: int
     uploaded_by: int
-    status: TrainingFileStatus = TrainingFileStatus.UPLOADED
+    status: TrainingFileStatus = TrainingFileStatus.LOADED
+    rows_inserted: int = 0
+    rows_rejected: int = 0
+    id: int | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class FundingRound:
+    """One funding round as stored in funding_rounds: the CSV columns without
+    `news_excerpt`, which leaks the target and is never stored (AGENTS.md section 2)."""
+
+    announced_date: date
+    year: int
+    company_domain: str
+    founded_year: int
+    stage: str
+    amount_status: str
+    round_id: str | None = None
+    company_name: str | None = None
+    country: str | None = None
+    city: str | None = None
+    sector: str | None = None
+    amount_usd: float | None = None
+    lead_investor: str | None = None
+    investor_count: int | None = None
+    news_mentions: int | None = None
+    news_source: str | None = None
+    news_url: str | None = None
+    fliar_profile_url: str | None = None
+    training_file_id: int | None = None
     id: int | None = None
     created_at: datetime | None = None
 

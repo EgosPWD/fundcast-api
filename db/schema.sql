@@ -25,13 +25,44 @@ CREATE TABLE training_files (
     filename VARCHAR(255) NOT NULL, 
     stored_path VARCHAR(1024) NOT NULL, 
     rows INTEGER NOT NULL, 
+    rows_inserted INTEGER DEFAULT '0' NOT NULL, 
+    rows_rejected INTEGER DEFAULT '0' NOT NULL, 
     uploaded_by INTEGER NOT NULL, 
     status VARCHAR(16) NOT NULL, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
     PRIMARY KEY (id), 
-    CONSTRAINT ck_training_files_status CHECK (status IN ('uploaded', 'used', 'failed')), 
+    CONSTRAINT ck_training_files_status CHECK (status IN ('loaded', 'failed')), 
     FOREIGN KEY(uploaded_by) REFERENCES users (id)
 );
+
+CREATE TABLE funding_rounds (
+    id SERIAL NOT NULL, 
+    round_id VARCHAR(64), 
+    announced_date DATE NOT NULL, 
+    year INTEGER NOT NULL, 
+    company_name VARCHAR(255), 
+    company_domain VARCHAR(255) NOT NULL, 
+    country VARCHAR(100), 
+    city VARCHAR(100), 
+    sector VARCHAR(100), 
+    founded_year INTEGER NOT NULL, 
+    stage VARCHAR(50) NOT NULL, 
+    amount_usd FLOAT, 
+    amount_status VARCHAR(32) NOT NULL, 
+    lead_investor VARCHAR(255), 
+    investor_count INTEGER, 
+    news_mentions INTEGER, 
+    news_source VARCHAR(255), 
+    news_url VARCHAR(2048), 
+    fliar_profile_url VARCHAR(2048), 
+    training_file_id INTEGER, 
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
+    PRIMARY KEY (id), 
+    UNIQUE (round_id), 
+    FOREIGN KEY(training_file_id) REFERENCES training_files (id)
+);
+
+CREATE INDEX ix_funding_rounds_company_domain_announced_date ON funding_rounds (company_domain, announced_date);
 
 CREATE TABLE model_versions (
     id SERIAL NOT NULL, 
