@@ -1,16 +1,22 @@
+from datetime import date
+
 import pytest
 
 from app.application.ports.token_service import TokenClaims
+from app.application.ports.training_data_parser import ParsedRounds
 from app.application.use_cases.ensure_admin import EnsureAdmin
+from app.application.use_cases.ensure_baseline_model import EnsureBaselineModel
 from app.application.use_cases.get_metrics import GetMetrics
 from app.application.use_cases.list_predictions import ListPredictions
 from app.application.use_cases.login import Login
 from app.application.use_cases.predict_round import PredictRound
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.retrain_model import RetrainModel
+from app.application.use_cases.seed_funding_rounds import SeedFundingRounds
 from app.application.use_cases.upload_training_file import UploadTrainingFile
 from app.domain.entities import (
     MAX_TRAINING_FILE_BYTES,
+    FundingRound,
     FundingRoundInput,
     ModelMetrics,
     ModelVersion,
@@ -24,19 +30,21 @@ from app.domain.errors import (
     AdminProvisioningError,
     AuthenticationError,
     EmailAlreadyRegisteredError,
+    InsufficientTrainingDataError,
     InvalidInputError,
     InvalidTrainingFileError,
     ModelNotAvailableError,
-    NotFoundError,
     RetrainInProgressError,
 )
 from tests.unit.fakes import (
     FakeFileStorage,
+    FakeInspector,
     FakePasswordHasher,
     FakePredictor,
     FakeRetrainLock,
     FakeTokenService,
     FakeTrainer,
+    FakeTrainingDataParser,
     InMemoryFundingRoundRepository,
     InMemoryModelVersionRepository,
     InMemoryPredictionRepository,
@@ -248,115 +256,275 @@ class TestGetMetrics:
         assert report.versions == []
 
 
+def funding_round(round_id: str | None = "r1", **overrides) -> FundingRound:
+    values = dict(announced_date=date(2025, 3, 1), year=2025, company_domain="acme.io",
+                  founded_year=2021, stage="Seed", amount_status="verified",
+                  amount_usd=1_500_000.0, round_id=round_id)
+    return FundingRound(**{**values, **overrides})
+
+
+def parsed(*round_ids: str | None, rejected: int = 0) -> ParsedRounds:
+    return ParsedRounds(rounds=[funding_round(r) for r in round_ids], rejected=rejected)
+
+
 class TestUploadTrainingFile:
     def setup_method(self):
-        self.storage, self.trainer = FakeFileStorage(), FakeTrainer(rows=250)
+        self.storage = FakeFileStorage()
+        self.parser = FakeTrainingDataParser(parsed("a", "b", "c", rejected=2))
         self.files = InMemoryTrainingFileRepository()
-        self.upload = UploadTrainingFile(self.storage, self.trainer, self.files)
+        self.rounds = InMemoryFundingRoundRepository([funding_round("old")])
+        self.upload = UploadTrainingFile(self.storage, self.parser, self.files, self.rounds)
 
-    def test_valid_csv_is_stored_and_registered(self):
+    def test_valid_csv_is_stored_parsed_and_its_rows_inserted_as_loaded(self):
         training_file = self.upload.execute(99, "rounds.CSV", b"a,b\n1,2\n")
 
         assert training_file.id == 1
-        assert training_file.rows == 250
-        # Rows are not ingested into funding_rounds yet (step 7): never report "loaded".
-        assert training_file.status is TrainingFileStatus.FAILED
-        assert (training_file.rows_inserted, training_file.rows_rejected) == (0, 0)
+        assert training_file.status is TrainingFileStatus.LOADED
+        assert (training_file.rows, training_file.rows_inserted,
+                training_file.rows_rejected) == (5, 3, 2)
         assert training_file.uploaded_by == 99
+        assert training_file.filename == "rounds.CSV"
         assert self.storage.files[training_file.stored_path] == b"a,b\n1,2\n"
+        assert self.parser.calls == [training_file.stored_path]
+        stored = self.files.get_by_id(training_file.id)
+        assert stored == training_file
+        new_rows = self.rounds.list_all()[1:]
+        assert [r.round_id for r in new_rows] == ["a", "b", "c"]
+        assert {r.training_file_id for r in new_rows} == {training_file.id}
+        assert self.rounds.list_all()[0].training_file_id is None
 
-    @pytest.mark.parametrize("filename", ["rounds.txt", "rounds.csv.exe", "rounds"])
+    def test_duplicate_round_ids_are_ignored_and_not_counted_as_inserted(self):
+        self.parser.parsed = parsed("old", "a", None, None)
+
+        training_file = self.upload.execute(99, "rounds.csv", b"x")
+
+        assert training_file.status is TrainingFileStatus.LOADED
+        assert (training_file.rows, training_file.rows_inserted,
+                training_file.rows_rejected) == (4, 3, 0)
+        assert [r.round_id for r in self.rounds.list_all()] == ["old", "a", None, None]
+
+    @pytest.mark.parametrize("filename", ["rounds.txt", "rounds.csv.exe", "rounds", ""])
     def test_non_csv_extension_is_rejected_before_storing(self, filename):
         with pytest.raises(InvalidTrainingFileError, match=".csv"):
             self.upload.execute(99, filename, b"a,b\n")
         assert self.storage.files == {}
+        assert self.parser.calls == []
+        assert self.files.files == {}
 
     def test_file_over_20_mb_is_rejected_before_storing(self):
         with pytest.raises(InvalidTrainingFileError, match="20 MB"):
             self.upload.execute(99, "big.csv", b"x" * (MAX_TRAINING_FILE_BYTES + 1))
         assert self.storage.files == {}
+        assert self.parser.calls == []
 
-    def test_invalid_columns_delete_the_stored_file(self):
-        self.trainer.invalid = True
+    def test_file_of_exactly_20_mb_is_accepted(self):
+        training_file = self.upload.execute(99, "big.csv", b"x" * MAX_TRAINING_FILE_BYTES)
+
+        assert training_file.status is TrainingFileStatus.LOADED
+
+    def test_invalid_file_deletes_the_stored_csv_and_registers_nothing(self):
+        self.parser.fail = InvalidTrainingFileError("missing required columns: amount_usd")
 
         with pytest.raises(InvalidTrainingFileError, match="amount_usd"):
             self.upload.execute(99, "rounds.csv", b"a,b\n")
         assert self.storage.files == {}
         assert self.files.files == {}
+        assert self.rounds.count() == 1
+
+    def test_failed_registration_deletes_the_stored_csv(self):
+        def broken_add(training_file):
+            raise RuntimeError("database down")
+
+        self.files.add = broken_add
+        with pytest.raises(RuntimeError, match="database down"):
+            self.upload.execute(99, "rounds.csv", b"a\n")
+        assert self.storage.files == {}
+        assert self.rounds.count() == 1
+
+    def test_failed_insert_never_leaves_a_loaded_record(self):
+        def broken_add_many(rounds):
+            raise RuntimeError("database down")
+
+        self.rounds.add_many = broken_add_many
+        with pytest.raises(RuntimeError, match="database down"):
+            self.upload.execute(99, "rounds.csv", b"a\n")
+        assert self.storage.files == {}
+        assert [f.status for f in self.files.files.values()] == [TrainingFileStatus.FAILED]
+        assert self.files.get_latest(TrainingFileStatus.LOADED) is None
 
 
 class TestRetrainModel:
     PARAMS = {"model__learning_rate": 0.05}
 
-    def build(self, trainer=None, lock=None):
+    def build(self, trainer=None, lock=None, with_upload=True):
         self.models = InMemoryModelVersionRepository()
         self.files = InMemoryTrainingFileRepository()
+        self.rounds = InMemoryFundingRoundRepository([funding_round("r1"), funding_round("r2")])
         self.trainer = trainer or FakeTrainer()
         self.lock = lock or FakeRetrainLock()
         self.active = add_active_model(self.models)
-        self.upload = self.files.add(TrainingFile(filename="new.csv", stored_path="up/new.csv",
-                                                  rows=10, uploaded_by=99, status=TrainingFileStatus.LOADED))
-        return RetrainModel(self.files, self.models, self.trainer, self.lock,
-                            baseline_dataset_path="data/base.csv", artifacts_dir="artifacts",
-                            params=self.PARAMS)
+        self.upload = None
+        if with_upload:
+            self.upload = self.files.add(TrainingFile(
+                filename="new.csv", stored_path="up/new.csv", rows=1, uploaded_by=99,
+                status=TrainingFileStatus.LOADED))
+            self.rounds.add_many([funding_round("r3", training_file_id=self.upload.id)])
+        return RetrainModel(self.rounds, self.files, self.models, self.trainer, self.lock,
+                            artifacts_dir="artifacts/", params=self.PARAMS)
 
-    def test_trains_on_baseline_plus_file_and_activates_if_not_worse(self):
-        outcome = self.build(FakeTrainer(mae_log=0.360)).execute(file_id=None)
+    def test_trains_on_every_stored_round_and_activates_if_not_worse(self):
+        outcome = self.build(FakeTrainer(mae_log=0.360)).execute()
 
-        assert self.trainer.train_calls == [
-            (["data/base.csv", "up/new.csv"], self.PARAMS, "artifacts/model_v2.joblib")]
+        [(rounds, params, artifact_path)] = self.trainer.train_calls
+        assert [r.round_id for r in rounds] == ["r1", "r2", "r3"]
+        assert [r.id for r in rounds] == [1, 2, 3]
+        assert (params, artifact_path) == (self.PARAMS, "artifacts/model_v2.joblib")
         assert outcome.activated is True
+        assert outcome.model_version.is_active is True
         assert outcome.model_version.version == 2
+        assert outcome.model_version.artifact_path == "artifacts/model_v2.joblib"
         assert outcome.model_version.training_file_id == self.upload.id
+        assert (outcome.model_version.n_train, outcome.model_version.n_test) == (3, 0)
         assert self.models.get_active().version == 2
-        assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.LOADED
         assert self.lock.taken is False
 
-    def test_worse_model_is_saved_inactive(self):
-        outcome = self.build(FakeTrainer(mae_log=0.40)).execute(file_id=None)
+    def test_without_uploads_training_file_id_is_none(self):
+        outcome = self.build(with_upload=False).execute()
+
+        assert [r.round_id for r in self.trainer.train_calls[0][0]] == ["r1", "r2"]
+        assert outcome.model_version.training_file_id is None
+
+    def test_training_file_id_skips_a_failed_load(self):
+        retrain = self.build()
+        self.files.add(TrainingFile(filename="bad.csv", stored_path="up/bad.csv", rows=1,
+                                    uploaded_by=99, status=TrainingFileStatus.FAILED))
+
+        outcome = retrain.execute()
+
+        assert outcome.model_version.training_file_id == self.upload.id
+
+    def test_activation_compares_with_the_stored_active_mae(self):
+        # Active MAE 0.352: 0.362 is within the 0.01 tolerance, 0.3621 is not.
+        assert self.build(FakeTrainer(mae_log=0.362)).execute().activated is True
+        outcome = self.build(FakeTrainer(mae_log=0.3621)).execute()
+
+        assert outcome.activated is False
+
+    def test_worse_model_is_saved_inactive_and_the_active_one_kept(self):
+        outcome = self.build(FakeTrainer(mae_log=0.40)).execute()
 
         assert outcome.activated is False
         assert outcome.model_version.is_active is False
         assert self.models.get_active().id == self.active.id
         assert len(self.models.list_all()) == 2
 
-    def test_uses_the_requested_file_id(self):
-        retrain = self.build()
-        other = self.files.add(TrainingFile(filename="b.csv", stored_path="up/b.csv", rows=5,
-                                            uploaded_by=99, status=TrainingFileStatus.LOADED))
-        retrain.execute(file_id=self.upload.id)
+    def test_without_an_active_model_the_new_version_is_activated(self):
+        retrain = self.build(FakeTrainer(mae_log=0.9))
+        self.models.versions.clear()
 
-        assert self.trainer.train_calls[0][0] == ["data/base.csv", "up/new.csv"]
-        assert other.status is TrainingFileStatus.LOADED
+        outcome = retrain.execute()
 
-    def test_unknown_file_id_raises_not_found(self):
-        with pytest.raises(NotFoundError):
-            self.build().execute(file_id=404)
-        assert self.lock.taken is False
-
-    def test_no_uploaded_files_raises_not_found(self):
-        retrain = self.build()
-        self.files.files.clear()
-
-        with pytest.raises(NotFoundError):
-            retrain.execute(file_id=None)
+        assert outcome.activated is True
+        assert outcome.model_version.version == 1
+        assert self.models.get_active().id == outcome.model_version.id
 
     def test_running_retrain_raises_conflict_without_training(self):
         retrain = self.build(lock=FakeRetrainLock(taken=True))
 
         with pytest.raises(RetrainInProgressError):
-            retrain.execute(file_id=None)
+            retrain.execute()
         assert self.trainer.train_calls == []
+        assert self.lock.released == 0
 
-    def test_training_failure_keeps_the_load_status_and_releases_lock(self):
-        """A file's status describes its load, not later retrainings (AGENTS.md section 7)."""
+    def test_insufficient_data_is_a_422_that_keeps_the_active_model(self):
+        retrain = self.build(FakeTrainer(fail=InsufficientTrainingDataError("too few rows")))
+
+        with pytest.raises(InsufficientTrainingDataError, match="too few rows"):
+            retrain.execute()
+        assert self.models.get_active().id == self.active.id
+        assert len(self.models.list_all()) == 1
+        assert self.lock.taken is False
+
+    def test_training_failure_keeps_the_active_model_and_releases_lock(self):
         retrain = self.build(FakeTrainer(fail=RuntimeError("boom")))
 
         with pytest.raises(RuntimeError):
-            retrain.execute(file_id=None)
+            retrain.execute()
+        assert self.models.get_active().id == self.active.id
         assert self.files.get_by_id(self.upload.id).status is TrainingFileStatus.LOADED
         assert self.lock.taken is False
         assert len(self.models.list_all()) == 1
+
+    def test_failure_while_saving_the_model_keeps_the_active_model(self):
+        retrain = self.build()
+
+        def broken_add(model_version):
+            raise RuntimeError("database down")
+
+        self.models.add = broken_add
+        with pytest.raises(RuntimeError, match="database down"):
+            retrain.execute()
+        assert self.models.get_active().id == self.active.id
+        assert self.lock.taken is False
+
+
+class TestSeedFundingRounds:
+    def test_loads_the_original_csv_into_an_empty_table(self, tmp_path):
+        dataset = tmp_path / "original.csv"
+        dataset.write_text("x")
+        rounds, parser = InMemoryFundingRoundRepository(), FakeTrainingDataParser(parsed("a", "b"))
+
+        inserted = SeedFundingRounds(rounds, parser).execute(str(dataset))
+
+        assert inserted == 2
+        assert parser.calls == [str(dataset)]
+        assert [r.round_id for r in rounds.list_all()] == ["a", "b"]
+        assert {r.training_file_id for r in rounds.list_all()} == {None}
+
+    def test_does_nothing_if_the_table_has_rows(self, tmp_path):
+        dataset = tmp_path / "original.csv"
+        dataset.write_text("x")
+        rounds = InMemoryFundingRoundRepository([funding_round("old")])
+        parser = FakeTrainingDataParser(parsed("a"))
+
+        assert SeedFundingRounds(rounds, parser).execute(str(dataset)) == 0
+        assert parser.calls == []
+        assert rounds.count() == 1
+
+    @pytest.mark.parametrize("dataset_path", [None, "", "data/does-not-exist.csv"])
+    def test_does_nothing_without_an_existing_path(self, dataset_path):
+        rounds, parser = InMemoryFundingRoundRepository(), FakeTrainingDataParser(parsed("a"))
+
+        assert SeedFundingRounds(rounds, parser).execute(dataset_path) == 0
+        assert parser.calls == []
+        assert rounds.count() == 0
+
+
+def test_teacher_flow_seed_retrain_upload_retrain(tmp_path):
+    """Upload data -> retrain -> upload more -> retrain (AGENTS.md section 12, step 9)."""
+    dataset = tmp_path / "original.csv"
+    dataset.write_text("x")
+    rounds, files = InMemoryFundingRoundRepository(), InMemoryTrainingFileRepository()
+    models, trainer = InMemoryModelVersionRepository(), FakeTrainer(mae_log=0.35)
+    add_active_model(models)
+    retrain = RetrainModel(rounds, files, models, trainer, FakeRetrainLock(),
+                           artifacts_dir="artifacts", params={"p": 1})
+
+    seeded = SeedFundingRounds(rounds, FakeTrainingDataParser(parsed("o1", "o2"))).execute(
+        str(dataset))
+    first = retrain.execute()
+    upload = UploadTrainingFile(FakeFileStorage(), FakeTrainingDataParser(parsed("u1", "o1")),
+                                files, rounds).execute(99, "more.csv", b"x")
+    second = retrain.execute()
+
+    assert seeded == 2
+    assert (upload.rows, upload.rows_inserted) == (2, 1)
+    assert (first.model_version.version, second.model_version.version) == (2, 3)
+    assert [[r.round_id for r in call[0]] for call in trainer.train_calls] == [
+        ["o1", "o2"], ["o1", "o2", "u1"]]
+    assert first.model_version.training_file_id is None
+    assert second.model_version.training_file_id == upload.id
+    assert models.get_active().version == 3
 
 
 def test_register_user_rejects_admin_escalation_by_design():
@@ -380,40 +548,46 @@ class TestReviewFindings:
         assert account.role is Role.USER
         assert account.password_hash == "hashed:public-pass"
 
-    def test_activated_outcome_reports_is_active(self):
-        retrain = TestRetrainModel().build(FakeTrainer(mae_log=0.30))
-
-        outcome = retrain.execute(file_id=None)
-
-        assert outcome.activated is True
-        assert outcome.model_version.is_active is True
-
-    def test_failure_while_saving_the_model_releases_lock_and_keeps_load_status(self):
-        case = TestRetrainModel()
-        retrain = case.build()
-
-        def broken_add(model_version):
-            raise RuntimeError("database down")
-
-        case.models.add = broken_add
-        with pytest.raises(RuntimeError, match="database down"):
-            retrain.execute(file_id=None)
-        assert case.files.get_by_id(case.upload.id).status is TrainingFileStatus.LOADED
-        assert case.lock.taken is False
-
-    def test_upload_deletes_the_stored_file_if_registration_fails(self):
-        storage, files = FakeFileStorage(), InMemoryTrainingFileRepository()
-
-        def broken_add(training_file):
-            raise RuntimeError("database down")
-
-        files.add = broken_add
-        with pytest.raises(RuntimeError, match="database down"):
-            UploadTrainingFile(storage, FakeTrainer(), files).execute(99, "rounds.csv", b"a\n")
-        assert storage.files == {}
-
 
 def test_training_file_status_has_no_default():
     """Every load must state its outcome explicitly (CodeRabbit review of PR #4)."""
     with pytest.raises(TypeError):
         TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=1, uploaded_by=1)
+
+
+class TestEnsureBaselineModel:
+    def test_registers_baseline_as_active_version_1_once(self):
+        models, inspector = InMemoryModelVersionRepository(), FakeInspector(metrics())
+        ensure = EnsureBaselineModel(models, inspector)
+
+        created = ensure.execute("artifacts/modelo_rondas.joblib", n_train=12_758, n_test=3_190)
+        again = ensure.execute("artifacts/modelo_rondas.joblib", n_train=12_758, n_test=3_190)
+
+        assert again is None
+        assert inspector.calls == ["artifacts/modelo_rondas.joblib"]
+        assert models.get_active() == created
+        assert (created.version, created.n_train, created.n_test) == (1, 12_758, 3_190)
+        assert created.params == {"model__max_iter": 400}
+        assert created.training_file_id is None
+
+    def test_baseline_stored_metrics_drive_the_first_retrain_activation(self):
+        models = InMemoryModelVersionRepository()
+        EnsureBaselineModel(models, FakeInspector(metrics(mae_log=0.3504))).execute(
+            "artifacts/modelo_rondas.joblib", n_train=12_758, n_test=3_190)
+        retrain = RetrainModel(InMemoryFundingRoundRepository([funding_round()]),
+                               InMemoryTrainingFileRepository(), models,
+                               FakeTrainer(mae_log=0.3605), FakeRetrainLock(),
+                               artifacts_dir="artifacts", params={})
+
+        outcome = retrain.execute()
+
+        assert outcome.activated is False
+        assert models.get_active().version == 1
+
+    def test_unreadable_artifact_registers_nothing(self):
+        models = InMemoryModelVersionRepository()
+
+        with pytest.raises(ModelNotAvailableError):
+            EnsureBaselineModel(models, FakeInspector(fail=ModelNotAvailableError("x"))).execute(
+                "artifacts/missing.joblib", n_train=1, n_test=1)
+        assert models.list_all() == []

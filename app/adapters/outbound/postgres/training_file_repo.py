@@ -34,13 +34,21 @@ class SqlAlchemyTrainingFileRepository:
             row = session.get(TrainingFileRow, training_file_id)
             return _to_domain(row) if row else None
 
-    def get_latest(self) -> TrainingFile | None:
+    def get_latest(self, status: TrainingFileStatus | None = None) -> TrainingFile | None:
+        query = select(TrainingFileRow).order_by(TrainingFileRow.id.desc()).limit(1)
+        if status is not None:
+            query = query.where(TrainingFileRow.status == status.value)
         with self._sessions() as session:
-            row = session.scalar(select(TrainingFileRow).order_by(TrainingFileRow.id.desc()))
+            row = session.scalar(query)
             return _to_domain(row) if row else None
 
-    def update_status(self, training_file_id: int, status: TrainingFileStatus) -> None:
+    def update_status(
+        self, training_file_id: int, status: TrainingFileStatus, rows_inserted: int | None = None
+    ) -> None:
+        values: dict[str, object] = {"status": status.value}
+        if rows_inserted is not None:
+            values["rows_inserted"] = rows_inserted
         with self._sessions.begin() as session:
             session.execute(update(TrainingFileRow)
                             .where(TrainingFileRow.id == training_file_id)
-                            .values(status=status.value))
+                            .values(**values))

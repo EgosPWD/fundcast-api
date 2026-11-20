@@ -129,6 +129,26 @@ class TestTrainingFileRepository:
         assert files.get_by_id(latest.id - 1).status is TrainingFileStatus.LOADED
         assert files.get_by_id(999) is None
 
+    def test_latest_by_status_and_rows_inserted_update(self, session_factory, users):
+        files = SqlAlchemyTrainingFileRepository(session_factory)
+        admin = users.add(User(email="admin@mail.com", password_hash="h", role=Role.ADMIN))
+        loaded = files.add(TrainingFile(filename="a.csv", stored_path="up/a.csv", rows=5,
+                                        uploaded_by=admin.id, status=TrainingFileStatus.FAILED,
+                                        rows_rejected=1))
+        files.add(TrainingFile(filename="b.csv", stored_path="up/b.csv", rows=2,
+                               uploaded_by=admin.id, status=TrainingFileStatus.FAILED))
+
+        files.update_status(loaded.id, TrainingFileStatus.LOADED, rows_inserted=4)
+
+        stored = files.get_by_id(loaded.id)
+        assert (stored.status, stored.rows, stored.rows_inserted, stored.rows_rejected) == (
+            TrainingFileStatus.LOADED, 5, 4, 1)
+        assert files.get_latest(TrainingFileStatus.LOADED).id == loaded.id
+        assert files.get_latest().id == loaded.id + 1
+        files.update_status(loaded.id, TrainingFileStatus.FAILED)
+        assert files.get_by_id(loaded.id).rows_inserted == 4
+        assert files.get_latest(TrainingFileStatus.LOADED) is None
+
 
 class TestPredictionRepository:
     def test_round_trip_and_filtered_pagination(self, session_factory, users, models):
