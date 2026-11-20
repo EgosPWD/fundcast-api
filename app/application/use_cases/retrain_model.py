@@ -1,12 +1,13 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
+from app.application.ports.funding_round_repo import FundingRoundRepository
 from app.application.ports.model_repo import ModelVersionRepository
 from app.application.ports.retrain_lock import RetrainLock
 from app.application.ports.trainer import Trainer
 from app.application.ports.training_file_repo import TrainingFileRepository
-from app.domain.entities import ModelVersion, TrainingFile, should_activate
-from app.domain.errors import NotFoundError, RetrainInProgressError
+from app.domain.entities import ModelVersion, TrainingFileStatus, should_activate
+from app.domain.errors import RetrainInProgressError
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,54 +17,44 @@ class RetrainOutcome:
 
 
 class RetrainModel:
-    """Retrain on the original CSV plus an uploaded file, with the fixed winning params.
+    """Retrain on every row of funding_rounds with a new stratified 80/20 split and the
+    fixed winning params (AGENTS.md section 4, "Flujo de /retrain").
 
-    The new version goes live only if MAE_log_new <= MAE_log_active + 0.01;
-    otherwise it is stored inactive (AGENTS.md section 4).
+    The new version goes live only if MAE_log_new <= MAE_log_active + 0.01, compared with
+    the stored metrics of the active version; otherwise it is stored inactive. A failed
+    retraining never touches the active model.
     """
 
     def __init__(
         self,
+        rounds: FundingRoundRepository,
         files: TrainingFileRepository,
         models: ModelVersionRepository,
         trainer: Trainer,
         lock: RetrainLock,
-        baseline_dataset_path: str,
         artifacts_dir: str,
         params: dict[str, Any],
     ) -> None:
-        self._files, self._models, self._trainer, self._lock = files, models, trainer, lock
-        self._baseline_dataset_path = baseline_dataset_path
+        self._rounds, self._files, self._models = rounds, files, models
+        self._trainer, self._lock = trainer, lock
         self._artifacts_dir = artifacts_dir.rstrip("/")
         self._params = params
 
-    def execute(self, file_id: int | None) -> RetrainOutcome:
+    def execute(self) -> RetrainOutcome:
         if not self._lock.acquire():
             raise RetrainInProgressError("A retraining is already in progress")
         try:
-            training_file = self._find_file(file_id)
-            return self._retrain(training_file)
+            return self._retrain()
         finally:
             self._lock.release()
 
-    def _find_file(self, file_id: int | None) -> TrainingFile:
-        found = self._files.get_latest() if file_id is None else self._files.get_by_id(file_id)
-        if found is None or found.id is None:
-            raise NotFoundError("Training file not found")
-        return found
-
-    def _retrain(self, training_file: TrainingFile) -> RetrainOutcome:
-        # A file's status describes its load into funding_rounds, not later retrainings
-        # (AGENTS.md section 7). A version saved before an activation failure stays
-        # inactive and auditable.
-        return self._train_and_register(training_file)
-
-    def _train_and_register(self, training_file: TrainingFile) -> RetrainOutcome:
+    def _retrain(self) -> RetrainOutcome:
+        # Read before training: the version records the last load included in its data.
+        latest = self._files.get_latest(TrainingFileStatus.LOADED)
+        rounds = self._rounds.list_all()
         version = self._models.next_version_number()
         result = self._trainer.train(
-            [self._baseline_dataset_path, training_file.stored_path],
-            self._params,
-            f"{self._artifacts_dir}/model_v{version}.joblib",
+            rounds, self._params, f"{self._artifacts_dir}/model_v{version}.joblib"
         )
         active = self._models.get_active()
         activate = should_activate(result.metrics, active.metrics if active else None)
@@ -75,7 +66,7 @@ class RetrainModel:
                 n_train=result.n_train,
                 n_test=result.n_test,
                 params=result.params,
-                training_file_id=training_file.id,
+                training_file_id=latest.id if latest else None,
             )
         )
         if activate and saved.id is not None:
