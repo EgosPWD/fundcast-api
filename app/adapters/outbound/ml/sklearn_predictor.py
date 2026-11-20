@@ -1,6 +1,7 @@
 """Predictor adapter backed by a scikit-learn Pipeline stored with joblib."""
 
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from app.domain.entities import MODEL_FEATURE_COLUMNS
 from app.domain.errors import ModelNotAvailableError
 
 REQUIRED_BUNDLE_KEYS = frozenset({"pipeline", "columns"})
@@ -19,6 +21,7 @@ class _LoadedModel:
     pipeline: Any
     columns: list[str]
     numeric_columns: list[str]
+    lead_freq_map: Mapping[str, int]
 
 
 class SklearnPredictor:
@@ -35,12 +38,15 @@ class SklearnPredictor:
 
     def predict_log10(self, artifact_path: str, features: dict[str, Any]) -> float:
         model = self._get(artifact_path)
-        frame = pd.DataFrame([[features.get(c) for c in model.columns]], columns=model.columns)
         # Nulls must be NaN, as read_csv produced them at training time:
         # SimpleImputer does not treat None as missing and the prediction silently changes.
-        frame = frame.astype(object).replace({None: np.nan})
+        row = {c: (np.nan if features.get(c) is None else features.get(c)) for c in model.columns}
+        frame = pd.DataFrame([row], columns=model.columns)
         frame = frame.astype({c: "float64" for c in model.numeric_columns})
         return float(model.pipeline.predict(frame)[0])
+
+    def lead_frequency_map(self, artifact_path: str) -> Mapping[str, int]:
+        return self._get(artifact_path).lead_freq_map
 
     def _get(self, artifact_path: str) -> _LoadedModel:
         path = self._resolve_inside_artifacts_dir(artifact_path)
@@ -70,9 +76,18 @@ class SklearnPredictor:
         ):
             raise ModelNotAvailableError("Model artifact has invalid columns metadata")
         columns = list(columns)
+        if tuple(columns) != MODEL_FEATURE_COLUMNS:
+            # A stale artifact (e.g. the old 13-column model) would silently receive NaN
+            # for the features it does not know: refuse it instead.
+            raise ModelNotAvailableError(
+                "Model artifact columns do not match the current feature contract"
+            )
         if not hasattr(pipeline, "predict"):
             raise ModelNotAvailableError("Model artifact has no usable pipeline")
-        return _LoadedModel(pipeline, columns, _numeric_columns(pipeline, columns))
+        lead_freq_map = bundle.get("lead_freq_map", {})
+        if not isinstance(lead_freq_map, dict):
+            raise ModelNotAvailableError("Model artifact has an invalid lead_freq_map")
+        return _LoadedModel(pipeline, columns, _numeric_columns(pipeline, columns), lead_freq_map)
 
 
 def _numeric_columns(pipeline: Any, columns: list[str]) -> list[str]:

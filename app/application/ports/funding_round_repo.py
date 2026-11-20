@@ -17,6 +17,10 @@ class FundingRoundRepository(Protocol):
 
     def count(self) -> int: ...
 
+    def has_company(self, company_domain: str) -> bool:
+        """Whether any round of this company is stored, whatever its year."""
+        ...
+
     def history(self, company_domain: str, up_to_year: int) -> list[FundingRound]:
         """Rounds of one company with year <= up_to_year, ordered by announced_date."""
         ...
