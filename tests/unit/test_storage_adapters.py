@@ -33,6 +33,16 @@ def test_save_never_uses_the_client_name_as_path(tmp_path, filename):
     assert sorted(p.name for p in tmp_path.rglob("*") if p.is_file()) == [stored.name]
 
 
+def test_save_removes_the_partial_file_when_writing_fails(tmp_path):
+    uploads = tmp_path / "uploads"
+    storage = LocalFileStorage(uploads_dir=str(uploads))
+
+    with pytest.raises(TypeError):
+        storage.save("rounds.csv", "not bytes")  # pyright: ignore[reportArgumentType]
+
+    assert list(uploads.iterdir()) == []
+
+
 def test_save_generates_a_new_name_each_time(tmp_path):
     storage = LocalFileStorage(uploads_dir=str(tmp_path))
 

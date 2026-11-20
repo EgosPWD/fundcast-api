@@ -18,8 +18,14 @@ class LocalFileStorage:
         self._root.mkdir(parents=True, exist_ok=True)
         suffix = Path(filename.replace("\\", "/")).suffix.lower()
         target = self._root / f"{uuid.uuid4().hex}{suffix if _SAFE_SUFFIX.match(suffix) else ''}"
-        with target.open("xb") as handle:
-            handle.write(content)
+        handle = target.open("xb")  # exclusive: never overwrites an existing file
+        try:
+            with handle:
+                handle.write(content)
+        except BaseException:
+            # The file is ours (just created); a partial copy must not stay behind.
+            target.unlink(missing_ok=True)
+            raise
         return str(target)
 
     def delete(self, stored_path: str) -> None:

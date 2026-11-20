@@ -1,8 +1,13 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.adapters.outbound.postgres.models import UserRow
 from app.domain.entities import Role, User
+from app.domain.errors import EmailAlreadyRegisteredError
+
+# PostgreSQL's default name for the UNIQUE constraint on users.email (migration 0001).
+_EMAIL_UNIQUE = "users_email_key"
 
 
 def _to_domain(row: UserRow) -> User:
@@ -15,12 +20,20 @@ class SqlAlchemyUserRepository:
         self._sessions = session_factory
 
     def add(self, user: User) -> User:
-        with self._sessions.begin() as session:
-            row = UserRow(email=user.email, password_hash=user.password_hash, role=user.role.value)
-            session.add(row)
-            session.flush()
-            session.refresh(row)
-            return _to_domain(row)
+        try:
+            with self._sessions.begin() as session:
+                row = UserRow(
+                    email=user.email, password_hash=user.password_hash, role=user.role.value
+                )
+                session.add(row)
+                session.flush()
+                session.refresh(row)
+                return _to_domain(row)
+        except IntegrityError as exc:
+            # A concurrent sign-up can pass RegisterUser's lookup; the constraint decides.
+            if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == _EMAIL_UNIQUE:
+                raise EmailAlreadyRegisteredError("email is already registered") from exc
+            raise
 
     def get_by_email(self, email: str) -> User | None:
         with self._sessions() as session:
