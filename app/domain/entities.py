@@ -1,6 +1,7 @@
 """Domain entities and business rules. Standard library only (AGENTS.md section 5)."""
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
@@ -35,8 +36,9 @@ MODEL_FEATURE_COLUMNS: tuple[str, ...] = (
     "company_age",
     "investor_count",
     "news_mentions",
-    "has_lead_investor",
+    "n_prev_rounds",
     "prev_log_amount",
+    "lead_freq",
     "stage_rank",
     "stage",
     "sector",
@@ -72,7 +74,7 @@ ACTIVATION_MAE_TOLERANCE = 0.01
 MAX_TRAINING_FILE_BYTES = 20 * 1024 * 1024
 UNDISCLOSED_STAGE = "Undisclosed"
 UNDISCLOSED_WARNING = (
-    "Stage 'Undisclosed' is less reliable: median absolute percentage error is about 67%."
+    "Stage 'Undisclosed' is less reliable: median absolute percentage error is about 71%."
 )
 
 
@@ -121,28 +123,48 @@ class FundingRoundInput:
     lead_investor: str | None = None
     news_mentions: int | None = None
     news_source: str | None = None
+    company_domain: str | None = None
+    prev_rounds: int | None = None
     prev_amount_usd: float | None = None
 
     def __post_init__(self) -> None:
         for name in ("stage", "sector", "country"):
             object.__setattr__(self, name, _clean_required(name, getattr(self, name)))
-        for name in ("city", "lead_investor", "news_source"):
+        for name in ("city", "lead_investor", "news_source", "company_domain"):
             object.__setattr__(self, name, _clean_optional(getattr(self, name)))
         if self.prev_amount_usd is not None and self.prev_amount_usd <= 0:
             raise InvalidInputError("prev_amount_usd must be greater than 0")
+        if self.prev_rounds is not None and self.prev_rounds < 0:
+            raise InvalidInputError("prev_rounds must be greater than or equal to 0")
 
-    def to_features(self) -> dict[str, Any]:
-        """Derive the 13 model columns, in contract order."""
+    def to_features(
+        self, history: "CompanyHistory | None", lead_freq_map: Mapping[str, int]
+    ) -> dict[str, Any]:
+        """Derive the 14 model columns, in contract order (AGENTS.md section 3).
+
+        `history` comes from funding_rounds when `company_domain` is known; otherwise the
+        client's `prev_rounds` / `prev_amount_usd` are used. `lead_freq_map` belongs to the
+        active model; +1 because during training the round itself was counted.
+        """
         rank = STAGE_RANK.get(self.stage)
+        if history is not None:
+            n_prev_rounds, prev_log_amount = history.n_prev_rounds, history.prev_log_amount
+        else:
+            n_prev_rounds = self.prev_rounds or 0
+            prev_log_amount = (
+                math.log10(self.prev_amount_usd) if self.prev_amount_usd is not None else None
+            )
+        lead_freq = (
+            lead_freq_map.get(self.lead_investor, 0) + 1 if self.lead_investor is not None else None
+        )
         return {
             "year": self.year,
             "company_age": self.year - self.founded_year,
             "investor_count": self.investor_count,
             "news_mentions": self.news_mentions,
-            "has_lead_investor": int(self.lead_investor is not None),
-            "prev_log_amount": (
-                math.log10(self.prev_amount_usd) if self.prev_amount_usd is not None else None
-            ),
+            "n_prev_rounds": n_prev_rounds,
+            "prev_log_amount": prev_log_amount,
+            "lead_freq": lead_freq,
             "stage_rank": float(rank) if rank is not None else None,
             "stage": self.stage,
             "sector": self.sector,
@@ -242,6 +264,23 @@ class FundingRound:
     training_file_id: int | None = None
     id: int | None = None
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyHistory:
+    """What the model needs from a company's earlier rounds."""
+
+    n_prev_rounds: int
+    prev_log_amount: float | None
+
+    @classmethod
+    def from_rounds(cls, rounds: Sequence[FundingRound]) -> "CompanyHistory":
+        """`rounds` ordered by announced_date: the last positive amount wins (ffill)."""
+        amounts = [r.amount_usd for r in rounds if r.amount_usd is not None and r.amount_usd > 0]
+        return cls(
+            n_prev_rounds=len(rounds),
+            prev_log_amount=math.log10(amounts[-1]) if amounts else None,
+        )
 
 
 @dataclass(slots=True)

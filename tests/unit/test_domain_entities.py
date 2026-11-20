@@ -1,4 +1,5 @@
 import math
+from datetime import date
 
 import pytest
 
@@ -6,12 +7,16 @@ from app.domain.entities import (
     MODEL_FEATURE_COLUMNS,
     REQUIRED_TRAINING_COLUMNS,
     STAGE_RANK,
+    CompanyHistory,
     Estimate,
+    FundingRound,
     FundingRoundInput,
     ModelMetrics,
     should_activate,
 )
 from app.domain.errors import InvalidInputError
+
+LEAD_FREQ = {"Y Combinator": 41, "Sequoia": 7}
 
 
 def make_input(**overrides) -> FundingRoundInput:
@@ -26,26 +31,34 @@ def make_input(**overrides) -> FundingRoundInput:
     return FundingRoundInput(**data)
 
 
+def features(round_input=None, history=None, lead_freq_map=LEAD_FREQ):
+    return (round_input or make_input()).to_features(history=history,
+                                                     lead_freq_map=lead_freq_map)
+
+
+def stored_round(month: int, amount: float | None, year: int = 2023) -> FundingRound:
+    return FundingRound(announced_date=date(year, month, 1), year=year, company_domain="acme.io",
+                        founded_year=2020, stage="Seed", amount_status="verified",
+                        amount_usd=amount)
+
+
 class TestFundingRoundInputToFeatures:
-    def test_full_input_derives_every_model_column(self):
+    def test_full_input_derives_the_14_model_columns_in_contract_order(self):
         round_input = make_input(
-            city="New York",
-            investor_count=3,
-            lead_investor="Y Combinator",
-            news_mentions=2,
-            news_source="TechCrunch",
-            prev_amount_usd=1_500_000,
+            city="New York", investor_count=3, lead_investor="Y Combinator", news_mentions=2,
+            news_source="TechCrunch", prev_rounds=1, prev_amount_usd=1_500_000,
         )
 
-        features = round_input.to_features()
+        result = features(round_input)
 
-        assert features == {
+        assert result == {
             "year": 2025,
             "company_age": 4,
             "investor_count": 3,
             "news_mentions": 2,
-            "has_lead_investor": 1,
+            "n_prev_rounds": 1,
             "prev_log_amount": pytest.approx(math.log10(1_500_000)),
+            "lead_freq": 42,
             "stage_rank": 2.0,
             "stage": "Seed",
             "sector": "Fintech",
@@ -54,26 +67,33 @@ class TestFundingRoundInputToFeatures:
             "lead_investor": "Y Combinator",
             "news_source": "TechCrunch",
         }
+        assert tuple(result) == MODEL_FEATURE_COLUMNS
+        assert len(MODEL_FEATURE_COLUMNS) == 14
+        assert "has_lead_investor" not in MODEL_FEATURE_COLUMNS
 
-    def test_features_have_exactly_the_contract_columns_in_order(self):
-        assert tuple(make_input().to_features()) == MODEL_FEATURE_COLUMNS
-        assert len(MODEL_FEATURE_COLUMNS) == 13
+    def test_minimal_input_defaults(self):
+        result = features()
 
-    def test_minimal_input_keeps_optional_fields_null(self):
-        features = make_input().to_features()
+        assert result["n_prev_rounds"] == 0
+        assert result["prev_log_amount"] is None
+        assert result["lead_freq"] is None
+        assert result["city"] is None and result["news_source"] is None
+        assert result["investor_count"] is None and result["news_mentions"] is None
 
-        assert features["company_age"] == 4
-        assert features["has_lead_investor"] == 0
-        assert features["prev_log_amount"] is None
-        assert features["city"] is None
-        assert features["lead_investor"] is None
-        assert features["news_source"] is None
-        assert features["investor_count"] is None
-        assert features["news_mentions"] is None
+    def test_unknown_lead_investor_counts_its_own_round(self):
+        assert features(make_input(lead_investor="Nobody Capital"))["lead_freq"] == 1
+
+    def test_company_history_overrides_client_values(self):
+        history = CompanyHistory(n_prev_rounds=3, prev_log_amount=6.5)
+        round_input = make_input(prev_rounds=9, prev_amount_usd=10)
+
+        result = features(round_input, history=history)
+
+        assert (result["n_prev_rounds"], result["prev_log_amount"]) == (3, 6.5)
 
     @pytest.mark.parametrize("stage", ["Undisclosed", "Debt", "Bridge", "Unknown stage"])
     def test_stage_without_rank_maps_to_null(self, stage):
-        assert make_input(stage=stage).to_features()["stage_rank"] is None
+        assert features(make_input(stage=stage))["stage_rank"] is None
 
     @pytest.mark.parametrize(
         ("stage", "rank"),
@@ -86,30 +106,46 @@ class TestFundingRoundInputToFeatures:
     )
     def test_stage_rank_map_matches_contract(self, stage, rank):
         assert STAGE_RANK[stage] == rank
-        assert make_input(stage=stage).to_features()["stage_rank"] == float(rank)
+        assert features(make_input(stage=stage))["stage_rank"] == float(rank)
 
     @pytest.mark.parametrize("amount", [0, -10])
     def test_non_positive_previous_amount_is_rejected(self, amount):
         with pytest.raises(InvalidInputError, match="prev_amount_usd"):
             make_input(prev_amount_usd=amount)
 
+    def test_negative_previous_rounds_are_rejected(self):
+        with pytest.raises(InvalidInputError, match="prev_rounds"):
+            make_input(prev_rounds=-1)
+
     @pytest.mark.parametrize("field", ["stage", "sector", "country"])
     def test_blank_required_text_is_rejected(self, field):
         with pytest.raises(InvalidInputError, match=field):
             make_input(**{field: "   "})
 
-    def test_text_fields_are_stripped(self):
-        features = make_input(country="  Chile ", lead_investor=" YC ").to_features()
+    def test_text_fields_are_stripped_and_blank_optionals_become_null(self):
+        round_input = make_input(country="  Chile ", lead_investor=" Sequoia ",
+                                 company_domain="  ", news_source=" ")
 
-        assert features["country"] == "Chile"
-        assert features["lead_investor"] == "YC"
-        assert features["has_lead_investor"] == 1
+        result = features(round_input)
 
-    def test_blank_lead_investor_counts_as_missing(self):
-        features = make_input(lead_investor="  ").to_features()
+        assert result["country"] == "Chile"
+        assert (result["lead_investor"], result["lead_freq"]) == ("Sequoia", 8)
+        assert round_input.company_domain is None and result["news_source"] is None
 
-        assert features["lead_investor"] is None
-        assert features["has_lead_investor"] == 0
+
+class TestCompanyHistory:
+    def test_counts_rounds_and_takes_last_positive_amount_by_date(self):
+        rounds = [stored_round(1, 1_000_000), stored_round(5, 10_000_000), stored_round(9, None)]
+
+        history = CompanyHistory.from_rounds(rounds)
+
+        assert history.n_prev_rounds == 3
+        assert history.prev_log_amount == pytest.approx(7.0)
+
+    def test_without_any_positive_amount_prev_log_amount_is_null(self):
+        history = CompanyHistory.from_rounds([stored_round(1, None), stored_round(2, 0)])
+
+        assert (history.n_prev_rounds, history.prev_log_amount) == (2, None)
 
 
 class TestEstimate:

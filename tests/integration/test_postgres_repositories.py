@@ -206,3 +206,5 @@ class TestFundingRoundRepository:
         assert [r.round_id for r in history] == ["a", "b"]
         assert history[0].training_file_id == upload.id
         assert repo.history("missing.io", up_to_year=2025) == []
+        assert repo.has_company("acme.io") is True
+        assert repo.has_company("missing.io") is False

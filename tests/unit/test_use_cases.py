@@ -37,6 +37,7 @@ from tests.unit.fakes import (
     FakeRetrainLock,
     FakeTokenService,
     FakeTrainer,
+    InMemoryFundingRoundRepository,
     InMemoryModelVersionRepository,
     InMemoryPredictionRepository,
     InMemoryTrainingFileRepository,
@@ -120,29 +121,90 @@ class TestLogin:
 
 
 class TestPredictRound:
+    def build(self, rounds=None, log10_value=6.0):
+        self.models, self.predictions = InMemoryModelVersionRepository(), InMemoryPredictionRepository()
+        self.predictor = FakePredictor(log10_value, lead_freq_map={"Y Combinator": 41})
+        self.active = add_active_model(self.models)
+        return PredictRound(self.models, self.predictor, self.predictions,
+                            InMemoryFundingRoundRepository(rounds))
+
     def test_predicts_with_active_model_and_saves_history(self):
-        models, predictions, predictor = (InMemoryModelVersionRepository(),
-                                          InMemoryPredictionRepository(), FakePredictor(6.0))
-        active = add_active_model(models)
+        predict = self.build()
+        request = round_input(lead_investor="Y Combinator", prev_rounds=2, prev_amount_usd=1e6)
 
-        outcome = PredictRound(models, predictor, predictions).execute(7, round_input())
+        outcome = predict.execute(7, request)
 
-        assert predictor.calls == [(active.artifact_path, round_input().to_features())]
+        expected = request.to_features(history=None, lead_freq_map={"Y Combinator": 41})
+        assert self.predictor.calls == [(self.active.artifact_path, expected)]
+        assert expected["lead_freq"] == 42 and expected["n_prev_rounds"] == 2
         assert outcome.estimate.estimated_amount_usd == pytest.approx(1_000_000)
-        assert outcome.model_version == active.version
+        assert outcome.model_version == self.active.version
         assert outcome.prediction.id == 1
-        assert predictions.items == [outcome.prediction]
-        saved = predictions.items[0]
-        assert (saved.user_id, saved.model_version_id) == (7, active.id)
+        saved = self.predictions.items[0]
+        assert (saved.user_id, saved.model_version_id) == (7, self.active.id)
         assert saved.estimated_log10 == 6.0
-        assert saved.input == round_input()
+        assert saved.input == request
+
+    def test_known_company_domain_uses_stored_history(self):
+        from datetime import date
+
+        from app.domain.entities import FundingRound
+
+        def stored(year, month, amount, domain="acme.io"):
+            return FundingRound(announced_date=date(year, month, 1), year=year,
+                                company_domain=domain, founded_year=2020, stage="Seed",
+                                amount_status="verified", amount_usd=amount)
+
+        predict = self.build([stored(2023, 1, 1e6), stored(2024, 3, 1e7), stored(2026, 1, 5e7),
+                              stored(2024, 6, 9e9, domain="other.io")])
+
+        predict.execute(7, round_input(year=2025, company_domain="acme.io", prev_rounds=9,
+                                       prev_amount_usd=5))
+
+        sent = self.predictor.calls[0][1]
+        assert sent["n_prev_rounds"] == 2
+        assert sent["prev_log_amount"] == pytest.approx(7.0)
+
+    def test_unknown_company_domain_falls_back_to_client_values(self):
+        predict = self.build()
+
+        predict.execute(7, round_input(company_domain="new.io", prev_rounds=1, prev_amount_usd=1e5))
+
+        sent = self.predictor.calls[0][1]
+        assert (sent["n_prev_rounds"], sent["prev_log_amount"]) == (1, pytest.approx(5.0))
+
+    def test_known_company_without_earlier_rounds_uses_empty_stored_history(self):
+        """CodeRabbit review of PR #6: a known domain never falls back to client values."""
+        from datetime import date
+
+        from app.domain.entities import FundingRound
+
+        later = FundingRound(announced_date=date(2026, 1, 1), year=2026, company_domain="acme.io",
+                             founded_year=2020, stage="Seed", amount_status="verified",
+                             amount_usd=5e7)
+        predict = self.build([later])
+
+        predict.execute(7, round_input(year=2025, company_domain="acme.io", prev_rounds=9,
+                                       prev_amount_usd=1e5))
+
+        sent = self.predictor.calls[0][1]
+        assert (sent["n_prev_rounds"], sent["prev_log_amount"]) == (0, None)
+
+    def test_explicit_empty_lead_map_counts_only_the_round_itself(self):
+        predict = self.build()
+        self.predictor.lead_freq_map = {}
+        assert FakePredictor(lead_freq_map={}).lead_freq_map == {}
+
+        predict.execute(7, round_input(lead_investor="Y Combinator"))
+
+        assert self.predictor.calls[0][1]["lead_freq"] == 1
 
     def test_without_active_model_raises_and_saves_nothing(self):
         predictions = InMemoryPredictionRepository()
 
         with pytest.raises(ModelNotAvailableError):
-            PredictRound(InMemoryModelVersionRepository(), FakePredictor(),
-                         predictions).execute(7, round_input())
+            PredictRound(InMemoryModelVersionRepository(), FakePredictor(), predictions,
+                         InMemoryFundingRoundRepository()).execute(7, round_input())
         assert predictions.items == []
 
 

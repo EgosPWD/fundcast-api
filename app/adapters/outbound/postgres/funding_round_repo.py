@@ -50,6 +50,13 @@ class SqlAlchemyFundingRoundRepository:
         with self._sessions() as session:
             return session.scalar(select(func.count()).select_from(FundingRoundRow)) or 0
 
+    def has_company(self, company_domain: str) -> bool:
+        query = select(FundingRoundRow.id).where(
+            FundingRoundRow.company_domain == company_domain
+        ).limit(1)
+        with self._sessions() as session:
+            return session.scalar(query) is not None
+
     def history(self, company_domain: str, up_to_year: int) -> list[FundingRound]:
         query = (
             select(FundingRoundRow)
