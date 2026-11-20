@@ -9,7 +9,9 @@ import csv
 import math
 from typing import Any
 
+import numpy as np
 import pandas as pd
+from pandas._libs.parsers import STR_NA_VALUES
 
 from app.adapters.outbound.ml import cleaning
 from app.application.ports.training_data_parser import ParsedRounds
@@ -17,6 +19,7 @@ from app.domain.entities import REQUIRED_TRAINING_COLUMNS, FundingRound
 from app.domain.errors import InvalidTrainingFileError
 
 LEAKING_COLUMN = "news_excerpt"
+ID_COLUMN = "round_id"
 INT_COLUMNS = ("year", "founded_year", "investor_count", "news_mentions")
 FLOAT_COLUMNS = ("amount_usd",)
 TEXT_COLUMNS = (
@@ -31,7 +34,14 @@ def _read(path: str) -> pd.DataFrame:
     try:
         # Everything as text first: ids such as "007" keep their zeros, and the numeric
         # columns are converted below with explicit errors.
-        return pd.read_csv(path, dtype=str, encoding="utf-8")
+        # round_id is an identifier: only an empty cell is missing. A literal "NA" or
+        # "NULL" stays text, or it would become NULL and dodge the unique index.
+        # Every other column keeps the default null markers, as in the notebook.
+        header = pd.read_csv(path, dtype=str, encoding="utf-8", nrows=0).columns
+        na_values = {col: ([""] if col == ID_COLUMN else sorted(STR_NA_VALUES))
+                     for col in header}
+        return pd.read_csv(path, dtype=str, encoding="utf-8", keep_default_na=False,
+                           na_values=na_values)
     except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError,
             csv.Error) as exc:
         raise InvalidTrainingFileError(f"file is not a readable CSV: {exc}") from exc
@@ -50,11 +60,13 @@ def _to_numbers(df: pd.DataFrame) -> pd.DataFrame:
             continue
         values = pd.to_numeric(out[col], errors="coerce")
         bad = values.isna() & out[col].notna()
+        # inf/-inf parse as numbers but would make log_amount non-finite at training.
+        bad |= values.notna() & ~np.isfinite(values)
         if col in INT_COLUMNS:
             bad |= values.notna() & (values % 1 != 0)
         if bad.any():
-            raise InvalidTrainingFileError(f"column {col} has {int(bad.sum())} non-numeric "
-                                           f"or non-integer value(s)")
+            raise InvalidTrainingFileError(f"column {col} has {int(bad.sum())} non-numeric, "
+                                           f"non-integer or non-finite value(s)")
         out[col] = values.astype(float)
     return out
 

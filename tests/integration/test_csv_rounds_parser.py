@@ -133,3 +133,30 @@ def test_header_only_file_has_no_rounds(tmp_path):
     parsed = CsvRoundsParser().parse(write(tmp_path, HEADER))
 
     assert (parsed.rounds, parsed.rejected) == ([], 0)
+
+
+@pytest.mark.parametrize("token", ["NA", "NULL", "nan"])
+def test_literal_null_tokens_in_round_id_stay_text(tmp_path, token):
+    """CodeRabbit review of PR #8: a round_id spelled like a null marker is still an id,
+    or a repeated upload would insert it again (NULL never conflicts on the unique index)."""
+    row = ROW_A.replace("r1,", f"{token},", 1)
+
+    parsed = CsvRoundsParser().parse(write(tmp_path, HEADER, row, ROW_B.replace("r2,", ",", 1)))
+
+    assert [r.round_id for r in parsed.rounds] == [token, None]
+    assert parsed.rounds[0].lead_investor == "Y Combinator"
+
+
+def test_null_tokens_keep_meaning_null_in_other_columns(tmp_path):
+    row = ROW_A.replace("Y Combinator", "NA")
+
+    assert CsvRoundsParser().parse(write(tmp_path, HEADER, row)).rounds[0].lead_investor is None
+
+
+@pytest.mark.parametrize("amount", ["inf", "-inf", "Infinity"])
+def test_infinite_amount_is_an_invalid_training_file(tmp_path, amount):
+    """CodeRabbit review of PR #8: an infinite amount would poison every later retrain."""
+    row = ROW_A.replace("1500000", amount)
+
+    with pytest.raises(InvalidTrainingFileError, match="amount_usd"):
+        CsvRoundsParser().parse(write(tmp_path, HEADER, row))
