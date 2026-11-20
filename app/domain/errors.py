@@ -39,3 +39,7 @@ class ModelNotAvailableError(DomainError):
 
 class AdminProvisioningError(DomainError):
     """The configured admin email belongs to a non-admin account (startup fails)."""
+
+
+class InsufficientTrainingDataError(InvalidInputError):
+    """Too few usable rows for the stratified 80/20 split (HTTP 422)."""
