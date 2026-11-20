@@ -30,6 +30,7 @@ from app.domain.entities import (
     TrainingFileStatus,
     User,
 )
+from app.domain.errors import EmailAlreadyRegisteredError
 
 DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="TEST_DATABASE_URL is not set")
@@ -81,11 +82,15 @@ class TestUserRepository:
         assert users.get_by_id(saved.id) == saved
         assert users.get_by_email("ghost@mail.com") is None
 
-    def test_email_is_unique(self, users):
+    def test_duplicate_email_raises_the_domain_error(self, users):
+        # Two concurrent sign-ups can both pass RegisterUser's lookup; the unique
+        # constraint then decides, and it must surface as a 409, not a 500.
         users.add(User(email="ana@mail.com", password_hash="h"))
 
-        with pytest.raises(IntegrityError):
+        with pytest.raises(EmailAlreadyRegisteredError):
             users.add(User(email="ana@mail.com", password_hash="h2"))
+
+        assert users.get_by_email("ana@mail.com").password_hash == "h"
 
 
 class TestModelVersionRepository:
