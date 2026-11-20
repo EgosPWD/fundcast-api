@@ -9,9 +9,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
+from app.application.ports.model_inspector import ArtifactMetadata
 from app.application.ports.token_service import TokenClaims
 from app.application.ports.trainer import TrainingResult
+from app.application.ports.training_data_parser import ParsedRounds
 from app.domain.entities import (
+    FundingRound,
     ModelMetrics,
     ModelVersion,
     Page,
@@ -20,7 +23,7 @@ from app.domain.entities import (
     TrainingFileStatus,
     User,
 )
-from app.domain.errors import AuthenticationError, InvalidTrainingFileError
+from app.domain.errors import AuthenticationError
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -88,28 +91,46 @@ class InMemoryTrainingFileRepository:
     def add(self, training_file: TrainingFile) -> TrainingFile:
         stored = replace(training_file, id=len(self.files) + 1, created_at=NOW)
         self.files[stored.id] = stored
-        return stored
+        return replace(stored)
 
     def get_by_id(self, training_file_id: int) -> TrainingFile | None:
-        return self.files.get(training_file_id)
+        found = self.files.get(training_file_id)
+        return replace(found) if found else None
 
-    def get_latest(self) -> TrainingFile | None:
-        return max(self.files.values(), key=lambda f: f.id or 0, default=None)
+    def get_latest(self, status: TrainingFileStatus | None = None) -> TrainingFile | None:
+        rows = [f for f in self.files.values() if status is None or f.status is status]
+        latest = max(rows, key=lambda f: f.id or 0, default=None)
+        return replace(latest) if latest else None
 
-    def update_status(self, training_file_id: int, status: TrainingFileStatus) -> None:
-        self.files[training_file_id].status = status
+    def update_status(
+        self, training_file_id: int, status: TrainingFileStatus, rows_inserted: int | None = None
+    ) -> None:
+        stored = self.files[training_file_id]
+        stored.status = status
+        if rows_inserted is not None:
+            stored.rows_inserted = rows_inserted
 
 
 class InMemoryFundingRoundRepository:
     def __init__(self, rounds=None) -> None:
-        self.rounds = list(rounds or [])
+        self.rounds: list[FundingRound] = []
+        self.add_many(list(rounds or []))
 
-    def add_many(self, rounds) -> int:
-        self.rounds.extend(rounds)
-        return len(rounds)
+    def add_many(self, rounds: list[FundingRound]) -> int:
+        """Like the database: ids follow the given order; a repeated round_id is skipped."""
+        known = {r.round_id for r in self.rounds if r.round_id is not None}
+        inserted = 0
+        for r in rounds:
+            if r.round_id is not None and r.round_id in known:
+                continue
+            if r.round_id is not None:
+                known.add(r.round_id)
+            self.rounds.append(replace(r, id=len(self.rounds) + 1, created_at=NOW))
+            inserted += 1
+        return inserted
 
-    def list_all(self):
-        return list(self.rounds)
+    def list_all(self) -> list[FundingRound]:
+        return [replace(r) for r in sorted(self.rounds, key=lambda r: r.id or 0)]
 
     def count(self) -> int:
         return len(self.rounds)
@@ -153,26 +174,37 @@ class FakePredictor:
 
 
 class FakeTrainer:
-    def __init__(self, mae_log: float = 0.35, rows: int = 100, fail: Exception | None = None):
-        self.mae_log, self.rows, self.fail = mae_log, rows, fail
-        self.train_calls: list[tuple[Sequence[str], dict[str, Any], str]] = []
-        self.invalid = False
-
-    def validate_dataset(self, path: str) -> int:
-        if self.invalid:
-            raise InvalidTrainingFileError("missing required columns: amount_usd")
-        return self.rows
+    def __init__(self, mae_log: float = 0.35, fail: Exception | None = None):
+        self.mae_log, self.fail = mae_log, fail
+        self.train_calls: list[tuple[list[FundingRound], dict[str, Any], str]] = []
 
     def train(
-        self, source_paths: Sequence[str], params: dict[str, Any], artifact_path: str
+        self, rounds: Sequence[FundingRound], params: dict[str, Any], artifact_path: str
     ) -> TrainingResult:
-        self.train_calls.append((list(source_paths), params, artifact_path))
+        self.train_calls.append((list(rounds), params, artifact_path))
         if self.fail:
             raise self.fail
         metrics = ModelMetrics(mae_log=self.mae_log, r2=0.62, rmse_log=0.49, mdape=0.52,
                                coverage=0.48)
-        return TrainingResult(artifact_path=artifact_path, metrics=metrics, n_train=800,
-                              n_test=200, params=params)
+        n_test = len(rounds) // 5
+        return TrainingResult(artifact_path=artifact_path, metrics=metrics,
+                              n_train=len(rounds) - n_test, n_test=n_test, params=params)
+
+
+class FakeTrainingDataParser:
+    """Returns a preset parse result (or raises) and records the parsed paths."""
+
+    def __init__(self, parsed: ParsedRounds | None = None, fail: Exception | None = None):
+        self.parsed = parsed or ParsedRounds(rounds=[], rejected=0)
+        self.fail = fail
+        self.calls: list[str] = []
+
+    def parse(self, path: str) -> ParsedRounds:
+        self.calls.append(path)
+        if self.fail:
+            raise self.fail
+        return ParsedRounds(rounds=[replace(r) for r in self.parsed.rounds],
+                            rejected=self.parsed.rejected)
 
 
 class FakeFileStorage:
@@ -202,3 +234,17 @@ class FakeRetrainLock:
     def release(self) -> None:
         self.taken = False
         self.released += 1
+
+
+class FakeInspector:
+    def __init__(self, metrics: ModelMetrics | None = None, fail: Exception | None = None):
+        self.metrics = metrics or ModelMetrics(mae_log=0.35, r2=0.62, rmse_log=0.49,
+                                               mdape=0.52, coverage=0.48)
+        self.fail = fail
+        self.calls: list[str] = []
+
+    def read_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        self.calls.append(artifact_path)
+        if self.fail:
+            raise self.fail
+        return ArtifactMetadata(metrics=self.metrics, params={"model__max_iter": 400})
