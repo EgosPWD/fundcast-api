@@ -283,6 +283,16 @@ class FundingRound:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryOptions:
+    """Category values stored in funding_rounds (case-sensitive). They are the training
+    vocabulary except for values that only a not-yet-retrained upload brought."""
+
+    sectors: list[str]
+    stages: list[str]
+    countries: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class CompanyHistory:
     """What the model needs from a company's earlier rounds."""
 

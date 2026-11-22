@@ -25,6 +25,7 @@ from app.adapters.outbound.storage.thread_retrain_lock import ThreadRetrainLock
 from app.application.use_cases.ensure_admin import EnsureAdmin
 from app.application.use_cases.ensure_baseline_model import EnsureBaselineModel
 from app.application.use_cases.get_metrics import GetMetrics
+from app.application.use_cases.get_options import GetOptions
 from app.application.use_cases.list_predictions import ListPredictions
 from app.application.use_cases.login import Login
 from app.application.use_cases.predict_round import PredictRound
@@ -61,6 +62,7 @@ def build_app(settings: Settings) -> FastAPI:
         ),
         list_predictions=ListPredictions(predictions),
         get_metrics=GetMetrics(models),
+        get_options=GetOptions(rounds),
         upload_training_file=UploadTrainingFile(
             LocalFileStorage(settings.uploads_dir), parser, files, rounds
         ),

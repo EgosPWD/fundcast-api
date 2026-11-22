@@ -15,11 +15,15 @@ from app.adapters.outbound.ml.sklearn_predictor import SklearnPredictor
 from app.adapters.outbound.security.bcrypt_hasher import BcryptPasswordHasher
 from app.adapters.outbound.security.jwt_token_service import JwtTokenService
 from app.application.use_cases.get_metrics import GetMetrics
+from app.application.use_cases.get_options import GetOptions
 from app.application.use_cases.list_predictions import ListPredictions
 from app.application.use_cases.login import Login
 from app.application.use_cases.predict_round import PredictRound
 from app.application.use_cases.register_user import RegisterUser
+from datetime import date
+
 from app.domain.entities import (
+    FundingRound,
     ModelMetrics,
     ModelVersion,
     Role,
@@ -110,15 +114,24 @@ def api(predictor) -> ApiContext:
     users.add(User(email=ADMIN_EMAIL, password_hash=hasher.hash(ADMIN_PASSWORD),
                    role=Role.ADMIN))
     upload, retrain = StubUploadTrainingFile(), StubRetrainModel()
+    rounds = InMemoryFundingRoundRepository([
+        FundingRound(announced_date=date(2024, 1, 1), year=2024, company_domain=f"c{i}.io",
+                     founded_year=2020, stage=stage, amount_status="verified",
+                     round_id=f"r{i}", sector=sector, country=country)
+        for i, (stage, sector, country) in enumerate([
+            ("Seed", "Fintech", "Chile"), ("Series A", "AI-native", "United States"),
+            ("Seed", "Fintech", None),
+        ])
+    ])
     startup_calls: list[str] = []
     app = create_app(
         ApiUseCases(
             register_user=RegisterUser(users, hasher),
             login=Login(users, hasher, tokens),
-            predict_round=PredictRound(models, predictor, predictions,
-                                       InMemoryFundingRoundRepository()),
+            predict_round=PredictRound(models, predictor, predictions, rounds),
             list_predictions=ListPredictions(predictions),
             get_metrics=GetMetrics(models),
+            get_options=GetOptions(rounds),
             upload_training_file=upload,
             retrain_model=retrain,
             token_service=tokens,

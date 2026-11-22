@@ -14,6 +14,7 @@ from app.application.ports.token_service import TokenClaims
 from app.application.ports.trainer import TrainingResult
 from app.application.ports.training_data_parser import ParsedRounds
 from app.domain.entities import (
+    CategoryOptions,
     FundingRound,
     ModelMetrics,
     ModelVersion,
@@ -137,6 +138,13 @@ class InMemoryFundingRoundRepository:
 
     def has_company(self, company_domain: str) -> bool:
         return any(r.company_domain == company_domain for r in self.rounds)
+
+    def category_options(self):
+        def distinct(name):
+            return list({getattr(r, name) for r in self.rounds if getattr(r, name) is not None})
+
+        return CategoryOptions(sectors=distinct("sector"), stages=distinct("stage"),
+                               countries=distinct("country"))
 
     def history(self, company_domain: str, up_to_year: int):
         rows = [r for r in self.rounds if r.company_domain == company_domain and r.year <= up_to_year]

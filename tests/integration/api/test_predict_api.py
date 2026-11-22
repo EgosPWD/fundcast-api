@@ -182,6 +182,22 @@ def test_history_with_invalid_paging_returns_422(api, user_headers, params, mess
     assert response.json() == {"detail": message}
 
 
+def test_options_lists_the_known_categories_for_the_form(api, user_headers):
+    response = api.client.get("/options", headers=user_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"sectors": ["AI-native", "Fintech"],
+                               "stages": ["Seed", "Series A"],
+                               "countries": ["Chile", "United States"]}
+
+
+def test_options_requires_a_token(api):
+    response = api.client.get("/options")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
 def test_metrics_returns_the_active_version_and_history(api, user_headers):
     response = api.client.get("/metrics", headers=user_headers)
 

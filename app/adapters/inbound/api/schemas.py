@@ -117,6 +117,15 @@ class RetrainResponse(BaseModel):
     message: str | None = None
 
 
+class OptionsResponse(BaseModel):
+    """Values stored in the training data; send them as they are (case-sensitive). A value
+    from an upload the active model was not retrained with is treated as unknown."""
+
+    sectors: list[str]
+    stages: list[str]
+    countries: list[str]
+
+
 class HealthResponse(BaseModel):
     status: str
 
