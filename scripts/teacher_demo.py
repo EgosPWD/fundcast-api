@@ -100,10 +100,20 @@ def read_dotenv(path: Path) -> dict[str, str]:
         return {}
     values = {}
     for line in path.read_text(encoding="utf-8").splitlines():
-        if "=" in line and not line.lstrip().startswith("#"):
-            key, _, value = line.partition("=")
-            values[key.strip()] = value.strip()
+        line = line.strip()
+        if "=" not in line or line.startswith("#"):
+            continue
+        key, _, value = line.removeprefix("export ").partition("=")
+        values[key.strip()] = _dotenv_value(value.strip())
     return values
+
+
+def _dotenv_value(raw: str) -> str:
+    """Decode a value the way Compose and pydantic-settings do: enclosing quotes are
+    removed (and keep a `#` inside them); an unquoted value ends at ` #`."""
+    if len(raw) >= 2 and raw[0] in "'\"" and raw[-1] == raw[0]:
+        return raw[1:-1]
+    return raw.split(" #", 1)[0].rstrip()
 
 
 def show_version(label: str, version: dict) -> None:

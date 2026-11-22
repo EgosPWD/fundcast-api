@@ -50,3 +50,21 @@ def test_multipart_body_carries_the_file_bytes_unchanged():
     assert part.get_param("name", header="content-disposition") == "file"
     assert part.get_filename() == "batch_1.csv"
     assert part.get_payload(decode=True) == content
+
+
+def test_read_dotenv_decodes_values_like_compose(tmp_path):
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "# comment\n"
+        "ADMIN_EMAIL=admin@example.com\n"
+        "ADMIN_PASSWORD='demo # secret'\n"
+        'DB_PASSWORD="p=ss"\n'
+        "export API_PORT=8001 # inline comment\n"
+        "EMPTY=\n",
+        encoding="utf-8",
+    )
+
+    assert demo.read_dotenv(dotenv) == {
+        "ADMIN_EMAIL": "admin@example.com", "ADMIN_PASSWORD": "demo # secret",
+        "DB_PASSWORD": "p=ss", "API_PORT": "8001", "EMPTY": "",
+    }
