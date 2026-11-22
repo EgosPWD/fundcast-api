@@ -283,6 +283,16 @@ class FundingRound:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryOptions:
+    """Category values present in funding_rounds. The model only knows these exact
+    strings (case-sensitive): any other text is treated as an unknown category."""
+
+    sectors: list[str]
+    stages: list[str]
+    countries: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class CompanyHistory:
     """What the model needs from a company's earlier rounds."""
 

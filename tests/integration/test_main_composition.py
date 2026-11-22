@@ -27,5 +27,5 @@ def test_build_app_exposes_every_contract_route(tmp_path):
     assert {
         ("POST", "/auth/register"), ("POST", "/auth/login"), ("POST", "/predict"),
         ("GET", "/predictions"), ("GET", "/metrics"), ("POST", "/training-files"),
-        ("POST", "/retrain"), ("GET", "/health"),
+        ("POST", "/retrain"), ("GET", "/health"), ("GET", "/options"),
     } <= routes

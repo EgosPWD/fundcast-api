@@ -8,9 +8,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.inbound.api.errors import register_error_handlers
-from app.adapters.inbound.api.routers import auth, health, metrics, predict, training
+from app.adapters.inbound.api.routers import auth, health, metrics, options, predict, training
 from app.adapters.inbound.api.use_case_ports import (
     GetMetricsUseCase,
+    GetOptionsUseCase,
     ListPredictionsUseCase,
     LoginUseCase,
     PredictRoundUseCase,
@@ -28,6 +29,7 @@ class ApiUseCases:
     predict_round: PredictRoundUseCase
     list_predictions: ListPredictionsUseCase
     get_metrics: GetMetricsUseCase
+    get_options: GetOptionsUseCase
     upload_training_file: UploadTrainingFileUseCase
     retrain_model: RetrainModelUseCase
     token_service: TokenService
@@ -59,6 +61,6 @@ def create_app(
         allow_headers=["Authorization", "Content-Type"],
     )
     register_error_handlers(app)
-    for module in (health, auth, predict, metrics, training):
+    for module in (health, auth, predict, options, metrics, training):
         app.include_router(module.router)
     return app

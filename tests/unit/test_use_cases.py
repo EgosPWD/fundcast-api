@@ -7,6 +7,7 @@ from app.application.ports.training_data_parser import ParsedRounds
 from app.application.use_cases.ensure_admin import EnsureAdmin
 from app.application.use_cases.ensure_baseline_model import EnsureBaselineModel
 from app.application.use_cases.get_metrics import GetMetrics
+from app.application.use_cases.get_options import GetOptions
 from app.application.use_cases.list_predictions import ListPredictions
 from app.application.use_cases.login import Login
 from app.application.use_cases.predict_round import PredictRound
@@ -254,6 +255,27 @@ class TestGetMetrics:
 
         assert report.active is None
         assert report.versions == []
+
+
+class TestGetOptions:
+    def test_returns_the_distinct_known_values_sorted_without_nulls(self):
+        rounds = InMemoryFundingRoundRepository([
+            funding_round("r1", sector="Fintech", stage="Seed", country="Chile"),
+            funding_round("r2", sector="AI-native", stage="Series A", country="Brazil"),
+            funding_round("r3", sector="Fintech", stage="Seed", country=None),
+            funding_round("r4", sector=None, stage="Angel", country="Chile"),
+        ])
+
+        options = GetOptions(rounds).execute()
+
+        assert options.sectors == ["AI-native", "Fintech"]
+        assert options.stages == ["Angel", "Seed", "Series A"]
+        assert options.countries == ["Brazil", "Chile"]
+
+    def test_works_without_rounds(self):
+        options = GetOptions(InMemoryFundingRoundRepository()).execute()
+
+        assert (options.sectors, options.stages, options.countries) == ([], [], [])
 
 
 def funding_round(round_id: str | None = "r1", **overrides) -> FundingRound:

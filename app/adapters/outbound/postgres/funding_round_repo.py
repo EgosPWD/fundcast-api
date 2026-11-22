@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.adapters.outbound.postgres.models import FundingRoundRow
-from app.domain.entities import FundingRound
+from app.domain.entities import CategoryOptions, FundingRound
 
 # 20 columns per row; chunks keep each INSERT far below PostgreSQL's 65,535 parameter limit.
 CHUNK_SIZE = 1_000
@@ -56,6 +56,15 @@ class SqlAlchemyFundingRoundRepository:
         ).limit(1)
         with self._sessions() as session:
             return session.scalar(query) is not None
+
+    def category_options(self) -> CategoryOptions:
+        def distinct(column) -> list[str]:
+            with self._sessions() as session:
+                return list(session.scalars(select(column).where(column.is_not(None)).distinct()))
+
+        return CategoryOptions(sectors=distinct(FundingRoundRow.sector),
+                               stages=distinct(FundingRoundRow.stage),
+                               countries=distinct(FundingRoundRow.country))
 
     def history(self, company_domain: str, up_to_year: int) -> list[FundingRound]:
         query = (

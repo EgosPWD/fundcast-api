@@ -9,7 +9,15 @@ from typing import Protocol
 from app.application.ports.token_service import TokenClaims
 from app.application.use_cases.get_metrics import MetricsReport
 from app.application.use_cases.predict_round import PredictionOutcome
-from app.domain.entities import FundingRoundInput, ModelVersion, Page, Prediction, TrainingFile, User
+from app.domain.entities import (
+    CategoryOptions,
+    FundingRoundInput,
+    ModelVersion,
+    Page,
+    Prediction,
+    TrainingFile,
+    User,
+)
 
 
 class RegisterUserUseCase(Protocol):
@@ -30,6 +38,10 @@ class ListPredictionsUseCase(Protocol):
 
 class GetMetricsUseCase(Protocol):
     def execute(self) -> MetricsReport: ...
+
+
+class GetOptionsUseCase(Protocol):
+    def execute(self) -> CategoryOptions: ...
 
 
 class UploadTrainingFileUseCase(Protocol):

@@ -117,6 +117,14 @@ class RetrainResponse(BaseModel):
     message: str | None = None
 
 
+class OptionsResponse(BaseModel):
+    """Exact values the model knows; send them as they are (case-sensitive)."""
+
+    sectors: list[str]
+    stages: list[str]
+    countries: list[str]
+
+
 class HealthResponse(BaseModel):
     status: str
 

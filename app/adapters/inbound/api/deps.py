@@ -6,6 +6,7 @@ from fastapi import Request
 
 from app.adapters.inbound.api.use_case_ports import (
     GetMetricsUseCase,
+    GetOptionsUseCase,
     ListPredictionsUseCase,
     LoginUseCase,
     PredictRoundUseCase,
@@ -45,6 +46,10 @@ def list_predictions(request: Request) -> ListPredictionsUseCase:
 
 def get_metrics(request: Request) -> GetMetricsUseCase:
     return use_cases(request).get_metrics
+
+
+def get_options(request: Request) -> GetOptionsUseCase:
+    return use_cases(request).get_options
 
 
 def upload_training_file(request: Request) -> UploadTrainingFileUseCase:
