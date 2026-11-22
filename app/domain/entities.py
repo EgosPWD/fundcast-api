@@ -284,8 +284,8 @@ class FundingRound:
 
 @dataclass(frozen=True, slots=True)
 class CategoryOptions:
-    """Category values present in funding_rounds. The model only knows these exact
-    strings (case-sensitive): any other text is treated as an unknown category."""
+    """Category values stored in funding_rounds (case-sensitive). They are the training
+    vocabulary except for values that only a not-yet-retrained upload brought."""
 
     sectors: list[str]
     stages: list[str]

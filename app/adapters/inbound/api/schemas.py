@@ -118,7 +118,8 @@ class RetrainResponse(BaseModel):
 
 
 class OptionsResponse(BaseModel):
-    """Exact values the model knows; send them as they are (case-sensitive)."""
+    """Values stored in the training data; send them as they are (case-sensitive). A value
+    from an upload the active model was not retrained with is treated as unknown."""
 
     sectors: list[str]
     stages: list[str]
