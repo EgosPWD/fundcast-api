@@ -97,7 +97,8 @@ python scripts/teacher_demo.py run                # --url http://localhost:8001 
 
 ### Cómo funciona `/retrain`
 
-- Cada reentrenamiento hace una **partición 80/20 estratificada nueva** sobre **todas** las filas de `funding_rounds`, con `random_state=42`.
+- Cada reentrenamiento usa **todas** las filas de `funding_rounds` para calcular las variables de historial, como `n_prev_rounds`, `prev_log_amount` y `lead_freq`.
+- La **partición 80/20 estratificada nueva** (`random_state=42`) solo incluye las rondas usables: `amount_status == "verified"` y `amount_usd` de al menos 1.000 USD. Una ronda `not_disclosed` o `failed_check` cuenta para el historial de su empresa, pero no entra ni en el entrenamiento ni en el test.
 - Entrena con los hiperparámetros ganadores del notebook, sin repetir la búsqueda.
 - La versión nueva se activa solo si `MAE_log_nuevo <= MAE_log_activo + 0.01`, comparando con el MAE **guardado** de la versión activa. Si no, se guarda inactiva y se avisa en `message`.
 - **Límite:** cada versión se mide sobre su propio test. Una diferencia pequeña de MAE puede deberse al sorteo de la partición y no solo al modelo.
@@ -109,9 +110,11 @@ python scripts/teacher_demo.py run                # --url http://localhost:8001 
 - **Opcionales:** `round_id`, `company_name`, `news_url`, `fliar_profile_url`.
 - **Archivo:** extensión `.csv` y como máximo 20 MB.
 - **Si `year` no coincide con el año de `announced_date`:** se rechaza el archivo completo con 422.
-- **Filas que se rechazan:** las de `founded_year` nulo o `company_age` negativa. Se cuentan en `rows_rejected`.
+- **Filas que se rechazan:** se cuentan en `rows_rejected`.
+  - `founded_year` nulo, o `company_age` negativa (`founded_year` posterior a `year`);
+  - `company_domain`, `stage` o `amount_status` vacíos.
 - **Filas que se ignoran:** las que traen un `round_id` que ya existe.
-- **`news_excerpt`:** si viene, se descarta y nunca se guarda, porque contiene el monto escrito (fuga de datos).
+- **`news_excerpt`:** contiene el monto escrito (fuga de datos), así que nunca se usa para entrenar y no se guarda en la base de datos. Sí queda en la copia del CSV original que se guarda en `UPLOADS_DIR`, porque esa copia se guarda tal cual. Si no quieres que quede guardado, quita la columna antes de subir el archivo.
 
 ## Desarrollo local (sin Docker)
 

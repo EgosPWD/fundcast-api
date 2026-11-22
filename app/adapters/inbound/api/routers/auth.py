@@ -26,6 +26,6 @@ def register(body: RegisterRequest,
 
 
 @router.post("/login", response_model=TokenResponse,
-             responses={401: {"model": ErrorResponse}})
+             responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def login(body: LoginRequest, login_use_case: Annotated[LoginUseCase, Depends(deps.login)]):
     return TokenResponse(access_token=login_use_case.execute(body.email, body.password))
