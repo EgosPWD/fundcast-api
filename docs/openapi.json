@@ -290,6 +290,53 @@
         }
       }
     },
+    "/options": {
+      "get": {
+        "tags": [
+          "predictions"
+        ],
+        "summary": "Get Options",
+        "description": "Sectors, stages and countries present in the data, for the prediction form.\n\nThe model only knows these exact strings: any other text is treated as an unknown\ncategory and gets an average estimate, so offer them as a closed list.",
+        "operationId": "get_options_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/metrics": {
       "get": {
         "tags": [
@@ -653,6 +700,39 @@
           "params"
         ],
         "title": "ModelVersionResponse"
+      },
+      "OptionsResponse": {
+        "properties": {
+          "sectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sectors"
+          },
+          "stages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "countries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Countries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sectors",
+          "stages",
+          "countries"
+        ],
+        "title": "OptionsResponse",
+        "description": "Exact values the model knows; send them as they are (case-sensitive)."
       },
       "PredictRequest": {
         "properties": {

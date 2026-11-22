@@ -16,6 +16,7 @@ Trabajo final de la materia de IA. El cliente web vive en otro repositorio; este
 | Métricas de rendimiento del modelo | `GET /metrics` | user, admin |
 | Reentrenar el modelo con información actualizada | `POST /retrain` | admin |
 | Enviar el archivo de entrenamiento (CSV) | `POST /training-files` | admin |
+| Valores aceptados en el formulario (sectores, etapas, países) | `GET /options` | user, admin |
 | Registro e inicio de sesión (JWT) | `POST /auth/register`, `POST /auth/login` | público |
 | Estado del servicio | `GET /health` | público |
 
