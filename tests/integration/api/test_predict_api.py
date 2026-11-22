@@ -89,6 +89,8 @@ def test_predict_without_a_required_field_returns_422(api, user_headers, missing
     ({"stage": "   "}, "stage must not be empty"),
     ({"prev_amount_usd": 0}, "prev_amount_usd must be greater than 0"),
     ({"prev_rounds": -1}, "prev_rounds must be greater than or equal to 0"),
+    ({"year": 2024, "founded_year": 2025},
+     "founded_year must not be later than year (company_age would be negative)"),
 ])
 def test_predict_with_a_domain_rule_violation_returns_422(api, user_headers, override, message):
     response = api.client.post("/predict", json={**MINIMAL, **override}, headers=user_headers)

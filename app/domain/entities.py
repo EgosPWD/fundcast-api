@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
@@ -136,6 +136,22 @@ class FundingRoundInput:
             raise InvalidInputError("prev_amount_usd must be greater than 0")
         if self.prev_rounds is not None and self.prev_rounds < 0:
             raise InvalidInputError("prev_rounds must be greater than or equal to 0")
+        if self.founded_year > self.year:
+            # Same rule as an uploaded CSV row (AGENTS.md section 6).
+            raise InvalidInputError(
+                "founded_year must not be later than year (company_age would be negative)"
+            )
+
+    @classmethod
+    def from_stored(cls, data: Mapping[str, Any]) -> "FundingRoundInput":
+        """Rebuild an input saved in the prediction history WITHOUT validating it again:
+        it was valid when stored, and a stricter rule added later must not make the
+        history unreadable. New requests go through the normal constructor."""
+        stored = object.__new__(cls)
+        for f in fields(cls):
+            object.__setattr__(stored, f.name, data.get(f.name, None if f.default is MISSING
+                                                        else f.default))
+        return stored
 
     def to_features(
         self, history: "CompanyHistory | None", lead_freq_map: Mapping[str, int]

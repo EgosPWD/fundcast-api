@@ -178,6 +178,28 @@ class TestPredictionRepository:
         assert first_page.items[0].input == round_input
         assert predictions.list(user_id=None, page=1, size=10).total == 4
 
+    def test_history_stays_readable_when_validation_rules_get_stricter(
+        self, session_factory, users, models
+    ):
+        # A prediction stored before a rule existed (here: founded_year > year) must not
+        # make the whole history fail: stored inputs are data, not new requests.
+        predictions = SqlAlchemyPredictionRepository(session_factory)
+        ana = users.add(User(email="ana@mail.com", password_hash="h"))
+        version = models.add(new_version(1, active=True))
+        round_input = FundingRoundInput(year=2025, founded_year=2021, stage="Seed",
+                                        sector="Fintech", country="Chile")
+        saved = predictions.add(Prediction(user_id=ana.id, model_version_id=version.id,
+                                           input=round_input, estimated_amount_usd=1e6,
+                                           estimated_log10=6.0))
+        with session_factory.begin() as session:
+            session.execute(text("UPDATE predictions SET input = jsonb_set(input, "
+                                 "'{founded_year}', '2030') WHERE id = :id"), {"id": saved.id})
+
+        (item,) = predictions.list(user_id=None, page=1, size=10).items
+
+        assert item.input.founded_year == 2030 and item.input.year == 2025
+        assert item.input.stage == "Seed" and item.input.city is None
+
 
 def funding_round(round_id, domain="acme.io", year=2024, month=1, amount=1_000_000.0, **extra):
     from datetime import date
