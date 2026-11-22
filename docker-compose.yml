@@ -17,14 +17,18 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://startups:${DB_PASSWORD}@db:5432/startups
+      # Relative to WORKDIR /srv, where ./data is mounted. Override it from the shell to
+      # seed another CSV, e.g. SEED_DATASET_PATH=./data/demo/seed.csv (teacher demo).
+      SEED_DATASET_PATH: ${SEED_DATASET_PATH-./data/global_startup_funding_sample.csv}
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./artifacts:/srv/artifacts
-      - ./data/uploads:/srv/data/uploads
+      # The whole data/ folder: the original CSV (seed), the demo split and uploads/.
+      - ./data:/srv/data
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
 
 volumes:
   pgdata:

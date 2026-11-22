@@ -9,7 +9,7 @@ from app.domain.entities import FundingRoundInput, Page, Prediction
 
 def _to_domain(row: PredictionRow) -> Prediction:
     return Prediction(user_id=row.user_id, model_version_id=row.model_version_id,
-                      input=FundingRoundInput(**row.input),
+                      input=FundingRoundInput.from_stored(row.input),
                       estimated_amount_usd=row.estimated_amount_usd,
                       estimated_log10=row.estimated_log10, id=row.id, created_at=row.created_at)
 

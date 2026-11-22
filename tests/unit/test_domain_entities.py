@@ -113,6 +113,14 @@ class TestFundingRoundInputToFeatures:
         with pytest.raises(InvalidInputError, match="prev_amount_usd"):
             make_input(prev_amount_usd=amount)
 
+    def test_founded_after_the_round_year_is_rejected(self):
+        # Same rule as an uploaded CSV row: a negative company_age is invalid input.
+        with pytest.raises(InvalidInputError, match="founded_year"):
+            make_input(year=2024, founded_year=2025)
+
+    def test_founded_the_same_year_is_accepted(self):
+        assert features(make_input(year=2024, founded_year=2024))["company_age"] == 0
+
     def test_negative_previous_rounds_are_rejected(self):
         with pytest.raises(InvalidInputError, match="prev_rounds"):
             make_input(prev_rounds=-1)
