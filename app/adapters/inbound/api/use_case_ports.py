@@ -10,7 +10,7 @@ from app.application.ports.token_service import TokenClaims
 from app.application.use_cases.get_metrics import MetricsReport
 from app.application.use_cases.predict_round import PredictionOutcome
 from app.domain.entities import (
-    CategoryOptions,
+    FormOptions,
     FundingRoundInput,
     ModelVersion,
     Page,
@@ -41,7 +41,7 @@ class GetMetricsUseCase(Protocol):
 
 
 class GetOptionsUseCase(Protocol):
-    def execute(self) -> CategoryOptions: ...
+    def execute(self) -> FormOptions: ...
 
 
 class UploadTrainingFileUseCase(Protocol):

@@ -31,7 +31,7 @@ def features(**overrides) -> dict:
 
 def contract_example() -> dict:
     return features(city="New York", investor_count=3, lead_investor="Y Combinator",
-                    news_mentions=2, news_source="TechCrunch", prev_amount_usd=1_500_000)
+                    news_mentions=2, news_source="techcrunch.com", prev_amount_usd=1_500_000)
 
 
 def test_contract_example_returns_a_plausible_log10(predictor):
@@ -149,3 +149,27 @@ def test_old_13_column_artifact_is_rejected(tmp_path):
     with pytest.raises(ModelNotAvailableError, match="columns"):
         SklearnPredictor(artifacts_dir=str(tmp_path)).predict_log10(str(tmp_path / "old.joblib"),
                                                                     features())
+
+
+class TestVocabulary:
+    def test_baseline_vocabulary_comes_from_the_target_encoder_without_unknown(self, predictor):
+        vocabulary = predictor.vocabulary(str(BASELINE))
+
+        assert {"Seed", "Series A"} <= vocabulary.stages
+        assert "Fintech" in vocabulary.sectors and "United States" in vocabulary.countries
+        assert "New York" in vocabulary.cities and "Y Combinator" in vocabulary.lead_investors
+        assert "techcrunch.com" in vocabulary.news_sources
+        assert "TechCrunch" not in vocabulary.news_sources
+        for values in (vocabulary.stages, vocabulary.sectors, vocabulary.countries,
+                       vocabulary.cities, vocabulary.lead_investors, vocabulary.news_sources):
+            assert "Unknown" not in values
+
+    def test_vocabulary_matches_the_encoder_categories_by_position(self, predictor):
+        encoder = (joblib.load(BASELINE)["pipeline"].named_steps["prep"]
+                   .named_transformers_["cat"].named_steps["target_enc"])
+        vocabulary = predictor.vocabulary(str(BASELINE))
+
+        expected = [set(map(str, c)) - {"Unknown"} for c in encoder.categories_]
+        assert [set(vocabulary.stages), set(vocabulary.sectors), set(vocabulary.countries),
+                set(vocabulary.cities), set(vocabulary.lead_investors),
+                set(vocabulary.news_sources)] == expected

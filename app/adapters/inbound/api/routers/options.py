@@ -11,14 +11,16 @@ router = APIRouter(tags=["predictions"])
 
 
 @router.get("/options", response_model=OptionsResponse,
-            responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}})
+            responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
+                       503: {"model": ErrorResponse}})
 def get_options(_: AnyUser,
                 options_use_case: Annotated[GetOptionsUseCase, Depends(deps.get_options)]):
-    """Sectors, stages and countries stored in funding_rounds, for the prediction form.
+    """Categories of the active model for the prediction form, plus the cities of each country.
 
-    Offer them as a closed list: the model matches categories by exact text, and any other
-    text is treated as unknown (average estimate). A value that only a recent upload brought
-    can appear here before an active model was retrained with it."""
+    Offer them as closed lists: the model matches categories by exact text, and any other
+    text is treated as unknown. After a retrain activates a new version the lists change."""
     options = options_use_case.execute()
-    return OptionsResponse(sectors=options.sectors, stages=options.stages,
-                           countries=options.countries)
+    return OptionsResponse(
+        stages=options.stages, sectors=options.sectors, countries=options.countries,
+        cities_by_country=options.cities_by_country, lead_investors=options.lead_investors,
+        news_sources=options.news_sources, model_version=options.model_version)

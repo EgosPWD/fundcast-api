@@ -30,7 +30,7 @@ def test_parses_rows_in_file_order_as_domain_rounds(tmp_path):
     assert parsed.rejected == 0
     first, second = parsed.rounds
     assert first == FundingRound(
-        announced_date=date(2025, 3, 1), year=2025, company_domain=" acme.io ",
+        announced_date=date(2025, 3, 1), year=2025, company_domain="acme.io",
         founded_year=2021, stage="Seed", amount_status="verified", round_id="r1",
         company_name="Acme", country="United States", city="New York", sector="Fintech",
         amount_usd=1_500_000.0, lead_investor="Y Combinator", investor_count=3,
@@ -44,6 +44,20 @@ def test_parses_rows_in_file_order_as_domain_rounds(tmp_path):
             second.lead_investor, second.news_source, second.news_url,
             second.fliar_profile_url) == (None,) * 8
     assert second.round_id == "r2"
+
+
+def test_company_domain_is_stored_normalized(tmp_path):
+    row = ROW_B.replace("beta.io", "https://www.Beta.io/about")
+
+    parsed = CsvRoundsParser().parse(write(tmp_path, HEADER, row))
+
+    assert parsed.rounds[0].company_domain == "beta.io"
+
+
+def test_row_whose_domain_normalizes_to_empty_is_rejected(tmp_path):
+    parsed = CsvRoundsParser().parse(write(tmp_path, HEADER, ROW_B.replace("beta.io", "https://")))
+
+    assert (parsed.rounds, parsed.rejected) == ([], 1)
 
 
 def test_news_excerpt_is_dropped(tmp_path):

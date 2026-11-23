@@ -16,7 +16,7 @@ Trabajo final de la materia de IA. El cliente web vive en otro repositorio; este
 | Métricas de rendimiento del modelo | `GET /metrics` | user, admin |
 | Reentrenar el modelo con información actualizada | `POST /retrain` | admin |
 | Enviar el archivo de entrenamiento (CSV) | `POST /training-files` | admin |
-| Valores aceptados en el formulario (sectores, etapas, países) | `GET /options` | user, admin |
+| Vocabulario del modelo activo para el formulario (etapas, sectores, países, ciudades por país, inversores líderes, fuentes de prensa) | `GET /options` | user, admin |
 | Registro e inicio de sesión (JWT) | `POST /auth/register`, `POST /auth/login` | público |
 | Estado del servicio | `GET /health` | público |
 
@@ -66,7 +66,7 @@ Cada paso es idempotente: en los arranques siguientes no repite nada.
      "year": 2025, "founded_year": 2021, "stage": "Seed", "sector": "Fintech",
      "country": "United States", "city": "New York",
      "investor_count": 3, "lead_investor": "Y Combinator",
-     "news_mentions": 2, "news_source": "TechCrunch",
+     "news_mentions": 2, "news_source": "techcrunch.com",
      "company_domain": "acme.io", "prev_rounds": 1, "prev_amount_usd": 1500000
    }
    ```
@@ -76,6 +76,11 @@ Cada paso es idempotente: en los arranques siguientes no repite nada.
    - `range_usd`: el estimado × / ÷ 1,5.
    - `model_version`: la versión que predijo.
    - `warning`: un aviso cuando `stage` es `Undisclosed`.
+   - `warnings`: un elemento `{"code": "unknown_category", "field", "value"}` por cada valor categórico que el modelo no conoce.
+
+   Los textos categóricos deben coincidir tal cual con `GET /options` (vocabulario del modelo activo, que cambia cuando un reentrenamiento se activa). `news_source` son dominios, p. ej. `techcrunch.com`. `company_domain` se normaliza (minúsculas, sin `http(s)://`, `www.` ni ruta). Si llega `prev_amount_usd`, `n_prev_rounds` es al menos 1.
+
+   **Historial de la empresa:** si `company_domain` existe en `funding_rounds`, se usan sus rondas con `year <=` el año de la ronda nueva que se predice.
 
 ## Demo del flujo del docente
 

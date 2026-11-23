@@ -10,7 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from app.domain.entities import MODEL_FEATURE_COLUMNS
+from app.domain.entities import MODEL_FEATURE_COLUMNS, ModelVocabulary
 from app.domain.errors import ModelNotAvailableError
 
 REQUIRED_BUNDLE_KEYS = frozenset({"pipeline", "columns"})
@@ -22,6 +22,7 @@ class _LoadedModel:
     columns: list[str]
     numeric_columns: list[str]
     lead_freq_map: Mapping[str, int]
+    vocabulary: ModelVocabulary
 
 
 class SklearnPredictor:
@@ -47,6 +48,9 @@ class SklearnPredictor:
 
     def lead_frequency_map(self, artifact_path: str) -> Mapping[str, int]:
         return self._get(artifact_path).lead_freq_map
+
+    def vocabulary(self, artifact_path: str) -> ModelVocabulary:
+        return self._get(artifact_path).vocabulary
 
     def _get(self, artifact_path: str) -> _LoadedModel:
         path = self._resolve_inside_artifacts_dir(artifact_path)
@@ -87,7 +91,8 @@ class SklearnPredictor:
         lead_freq_map = bundle.get("lead_freq_map", {})
         if not isinstance(lead_freq_map, dict):
             raise ModelNotAvailableError("Model artifact has an invalid lead_freq_map")
-        return _LoadedModel(pipeline, columns, _numeric_columns(pipeline, columns), lead_freq_map)
+        return _LoadedModel(pipeline, columns, _numeric_columns(pipeline, columns), lead_freq_map,
+                            _vocabulary(pipeline))
 
 
 def _numeric_columns(pipeline: Any, columns: list[str]) -> list[str]:
@@ -100,3 +105,25 @@ def _numeric_columns(pipeline: Any, columns: list[str]) -> list[str]:
     if not set(numeric) <= set(columns):
         raise ModelNotAvailableError("Model artifact columns are inconsistent")
     return numeric
+
+
+# Order of the categorical columns inside the "cat" transformer (features.COLS_CAT).
+_CATEGORICAL_ORDER = ("stage", "sector", "country", "city", "lead_investor", "news_source")
+_IMPUTER_TOKEN = "Unknown"
+
+
+def _vocabulary(pipeline: Any) -> ModelVocabulary:
+    """Categories the TargetEncoder learned, per categorical column (imputer token excluded)."""
+    try:
+        prep = pipeline.named_steps["prep"]
+        encoder = prep.named_transformers_["cat"].named_steps["target_enc"]
+        # The encoder receives the imputer's array, so the column names live in the
+        # ColumnTransformer entry; categories_ follows that order.
+        names = [c for name, _, cols in prep.transformers_ if name == "cat" for c in cols]
+        categories = encoder.categories_
+    except (AttributeError, KeyError) as exc:
+        raise ModelNotAvailableError("Model artifact has no categorical encoder") from exc
+    if tuple(names) != _CATEGORICAL_ORDER:
+        raise ModelNotAvailableError("Model artifact categorical columns are unexpected")
+    sets = [frozenset(str(v) for v in values) - {_IMPUTER_TOKEN} for values in categories]
+    return ModelVocabulary(*sets)

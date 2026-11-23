@@ -1,6 +1,7 @@
 """Domain entities and business rules. Standard library only (AGENTS.md section 5)."""
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
@@ -90,6 +91,15 @@ def _clean_optional(value: str | None) -> str | None:
     return stripped or None
 
 
+def normalize_company_domain(value: str | None) -> str | None:
+    """Bare lowercase host: no scheme, `www.`, path, query or trailing slash."""
+    domain = re.sub(r"\s+", "", value or "").lower()
+    domain = re.sub(r"^[a-z][a-z0-9+.-]*://", "", domain)
+    domain = re.split(r"[/?#]", domain, maxsplit=1)[0]
+    domain = domain.removeprefix("www.")
+    return domain or None
+
+
 def _clean_required(name: str, value: str) -> str:
     stripped = (value or "").strip()
     if not stripped:
@@ -132,6 +142,7 @@ class FundingRoundInput:
             object.__setattr__(self, name, _clean_required(name, getattr(self, name)))
         for name in ("city", "lead_investor", "news_source", "company_domain"):
             object.__setattr__(self, name, _clean_optional(getattr(self, name)))
+        object.__setattr__(self, "company_domain", normalize_company_domain(self.company_domain))
         if self.prev_amount_usd is not None and self.prev_amount_usd <= 0:
             raise InvalidInputError("prev_amount_usd must be greater than 0")
         if self.prev_rounds is not None and self.prev_rounds < 0:
@@ -166,7 +177,9 @@ class FundingRoundInput:
         if history is not None:
             n_prev_rounds, prev_log_amount = history.n_prev_rounds, history.prev_log_amount
         else:
-            n_prev_rounds = self.prev_rounds or 0
+            # A previous amount implies at least one previous round.
+            n_prev_rounds = max(self.prev_rounds or 0,
+                                1 if self.prev_amount_usd is not None else 0)
             prev_log_amount = (
                 math.log10(self.prev_amount_usd) if self.prev_amount_usd is not None else None
             )
@@ -283,13 +296,50 @@ class FundingRound:
 
 
 @dataclass(frozen=True, slots=True)
-class CategoryOptions:
-    """Category values stored in funding_rounds (case-sensitive). They are the training
-    vocabulary except for values that only a not-yet-retrained upload brought."""
+class CategoryWarning:
+    """A categorical value the active model does not know; the client writes the message."""
 
-    sectors: list[str]
+    code: str
+    field: str
+    value: str
+
+
+UNKNOWN_CATEGORY = "unknown_category"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelVocabulary:
+    """Categorical values an active model saw in training (case-sensitive); anything else
+    reaches the model as an unseen category."""
+
+    stages: frozenset[str]
+    sectors: frozenset[str]
+    countries: frozenset[str]
+    cities: frozenset[str]
+    lead_investors: frozenset[str]
+    news_sources: frozenset[str]
+
+    def warnings_for(self, round_input: "FundingRoundInput") -> list[CategoryWarning]:
+        """One warning per non-null categorical value the model does not know."""
+        checks = (("stage", self.stages), ("sector", self.sectors),
+                  ("country", self.countries), ("city", self.cities),
+                  ("lead_investor", self.lead_investors), ("news_source", self.news_sources))
+        return [CategoryWarning(UNKNOWN_CATEGORY, name, value)
+                for name, known in checks
+                if (value := getattr(round_input, name)) is not None and value not in known]
+
+
+@dataclass(frozen=True, slots=True)
+class FormOptions:
+    """What the prediction form may offer: the active model's vocabulary (sorted lists)."""
+
     stages: list[str]
+    sectors: list[str]
     countries: list[str]
+    cities_by_country: dict[str, list[str]]
+    lead_investors: list[str]
+    news_sources: list[str]
+    model_version: int
 
 
 @dataclass(frozen=True, slots=True)

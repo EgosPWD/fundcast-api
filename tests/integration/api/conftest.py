@@ -117,10 +117,12 @@ def api(predictor) -> ApiContext:
     rounds = InMemoryFundingRoundRepository([
         FundingRound(announced_date=date(2024, 1, 1), year=2024, company_domain=f"c{i}.io",
                      founded_year=2020, stage=stage, amount_status="verified",
-                     round_id=f"r{i}", sector=sector, country=country)
-        for i, (stage, sector, country) in enumerate([
-            ("Seed", "Fintech", "Chile"), ("Series A", "AI-native", "United States"),
-            ("Seed", "Fintech", None),
+                     round_id=f"r{i}", sector=sector, country=country, city=city)
+        for i, (stage, sector, country, city) in enumerate([
+            ("Seed", "Fintech", "Chile", "Santiago"),
+            ("Series A", "AI-native", "United States", "New York"),
+            ("Seed", "Fintech", None, "Atlantis City"),
+            ("Seed", "Fintech", "United States", "Gotham"),
         ])
     ])
     startup_calls: list[str] = []
@@ -131,7 +133,7 @@ def api(predictor) -> ApiContext:
             predict_round=PredictRound(models, predictor, predictions, rounds),
             list_predictions=ListPredictions(predictions),
             get_metrics=GetMetrics(models),
-            get_options=GetOptions(rounds),
+            get_options=GetOptions(models, predictor, rounds),
             upload_training_file=upload,
             retrain_model=retrain,
             token_service=tokens,

@@ -26,3 +26,9 @@ def test_every_422_declares_the_string_error_body_the_api_returns():
                 ref = response["content"]["application/json"]["schema"]["$ref"]
                 assert ref.endswith("/ErrorResponse"), f"{method.upper()} {path}: {ref}"
     assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+def test_options_declares_the_503_returned_without_an_active_model():
+    responses = build_schema()["paths"]["/options"]["get"]["responses"]
+    assert responses["503"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/ErrorResponse")
