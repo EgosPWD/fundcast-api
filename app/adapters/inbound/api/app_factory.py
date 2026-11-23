@@ -48,7 +48,7 @@ def create_app(
 
     app = FastAPI(
         title="Startup Funding API",
-        version="0.1.0",
+        version="1.0.0",
         description="Estimates the USD amount of a startup funding round.",
         lifespan=lifespan,
     )
