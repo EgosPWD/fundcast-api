@@ -42,7 +42,8 @@ def test_the_openapi_schema_examples_have_known_categories():
     assert unknown_values(example) == []
 
 
-@pytest.mark.parametrize("name", ["AGENTS.md", "README.md"])
+# AGENTS.md only lists rules; README.md is the document that shows /predict examples.
+@pytest.mark.parametrize("name", ["README.md"])
 def test_the_markdown_predict_examples_have_known_categories(name):
     examples = json_examples(ROOT / name)
 
