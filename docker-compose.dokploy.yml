@@ -26,7 +26,9 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql+psycopg://startups:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/startups
+      # DB_PASSWORD goes into the URL as is, so it must be URL-safe (openssl rand -hex 32).
+      # For a password with characters such as @ : / set DATABASE_URL with it percent-encoded.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://startups:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/startups}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (at least 32 characters)}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
