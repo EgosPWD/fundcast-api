@@ -214,7 +214,7 @@ class TestPreviousAmountImpliesAPreviousRound:
 class TestCompanyDomainNormalization:
     @pytest.mark.parametrize("raw", [
         "Acme.IO", "  acme.io ", "https://acme.io", "http://www.acme.io/", "WWW.Acme.io",
-        "https://www.acme.io/about/team?x=1", "acme.io/",
+        "https://www.acme.io/about/team?x=1", "acme.io/", "https://www.acme.io /about",
     ])
     def test_variants_normalize_to_the_bare_domain(self, raw):
         assert make_input(company_domain=raw).company_domain == "acme.io"

@@ -93,7 +93,7 @@ def _clean_optional(value: str | None) -> str | None:
 
 def normalize_company_domain(value: str | None) -> str | None:
     """Bare lowercase host: no scheme, `www.`, path, query or trailing slash."""
-    domain = (value or "").strip().lower()
+    domain = re.sub(r"\s+", "", value or "").lower()
     domain = re.sub(r"^[a-z][a-z0-9+.-]*://", "", domain)
     domain = re.split(r"[/?#]", domain, maxsplit=1)[0]
     domain = domain.removeprefix("www.")

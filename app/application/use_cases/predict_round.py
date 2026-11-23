@@ -43,6 +43,7 @@ class PredictRound:
         )
         log10_value = self._predictor.predict_log10(active.artifact_path, features)
         estimate = Estimate.from_log10(log10_value, stage=round_input.stage)
+        warnings = self._predictor.vocabulary(active.artifact_path).warnings_for(round_input)
         prediction = self._predictions.add(
             Prediction(
                 user_id=user_id,
@@ -52,7 +53,6 @@ class PredictRound:
                 estimated_log10=estimate.estimated_log10,
             )
         )
-        warnings = self._predictor.vocabulary(active.artifact_path).warnings_for(round_input)
         return PredictionOutcome(prediction, estimate, active.version, warnings)
 
     def _company_history(self, round_input: FundingRoundInput) -> CompanyHistory | None:

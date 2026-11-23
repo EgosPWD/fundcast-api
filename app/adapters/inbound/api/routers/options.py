@@ -11,7 +11,8 @@ router = APIRouter(tags=["predictions"])
 
 
 @router.get("/options", response_model=OptionsResponse,
-            responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}})
+            responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
+                       503: {"model": ErrorResponse}})
 def get_options(_: AnyUser,
                 options_use_case: Annotated[GetOptionsUseCase, Depends(deps.get_options)]):
     """Categories of the active model for the prediction form, plus the cities of each country.

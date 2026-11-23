@@ -15,7 +15,11 @@ from pandas._libs.parsers import STR_NA_VALUES
 
 from app.adapters.outbound.ml import cleaning
 from app.application.ports.training_data_parser import ParsedRounds
-from app.domain.entities import REQUIRED_TRAINING_COLUMNS, FundingRound
+from app.domain.entities import (
+    REQUIRED_TRAINING_COLUMNS,
+    FundingRound,
+    normalize_company_domain,
+)
 from app.domain.errors import InvalidTrainingFileError
 
 LEAKING_COLUMN = "news_excerpt"
@@ -101,6 +105,9 @@ class CsvRoundsParser:
         _check_columns(df)
         df = df.drop(columns=[LEAKING_COLUMN], errors="ignore")
         df = _parse_dates(_to_numbers(df))
+        # Stored like FundingRoundInput looks it up, so a known company finds its history.
+        df["company_domain"] = df["company_domain"].map(
+            lambda v: None if pd.isna(v) else normalize_company_domain(v))
 
         rejected = (
             df["founded_year"].isna()

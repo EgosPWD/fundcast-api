@@ -169,6 +169,18 @@ class TestPredictRound:
         assert outcome.warnings == [
             CategoryWarning(code="unknown_category", field="news_source", value="TechCrunch")]
 
+    def test_a_failed_warning_lookup_saves_no_prediction(self):
+        predict = self.build()
+
+        def unavailable(artifact_path):
+            raise ModelNotAvailableError("artifact missing")
+
+        self.predictor.vocabulary = unavailable
+
+        with pytest.raises(ModelNotAvailableError):
+            predict.execute(7, round_input())
+        assert self.predictions.items == []
+
     def test_known_categories_give_no_warnings(self):
         assert self.build().execute(7, round_input()).warnings == []
 
