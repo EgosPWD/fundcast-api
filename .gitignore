@@ -17,6 +17,7 @@ artifacts/*
 data/uploads/*
 !data/uploads/.gitkeep
 *.joblib
+!artifacts/modelo_rondas.joblib
 *.csv
 
 # docker
