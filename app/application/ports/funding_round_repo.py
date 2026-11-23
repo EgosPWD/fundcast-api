@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from app.domain.entities import CategoryOptions, FundingRound
+from app.domain.entities import FundingRound
 
 
 class FundingRoundRepository(Protocol):
@@ -25,6 +25,6 @@ class FundingRoundRepository(Protocol):
         """Rounds of one company with year <= up_to_year, ordered by announced_date."""
         ...
 
-    def category_options(self) -> CategoryOptions:
-        """Distinct non-null sector, stage and country values (any order)."""
+    def city_countries(self) -> list[tuple[str, str]]:
+        """Distinct (city, country) pairs where both are non-null (any order)."""
         ...

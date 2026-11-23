@@ -16,11 +16,13 @@ from app.application.use_cases.retrain_model import RetrainModel
 from app.application.use_cases.seed_funding_rounds import SeedFundingRounds
 from app.application.use_cases.upload_training_file import UploadTrainingFile
 from app.domain.entities import (
+    CategoryWarning,
     MAX_TRAINING_FILE_BYTES,
     FundingRound,
     FundingRoundInput,
     ModelMetrics,
     ModelVersion,
+    ModelVocabulary,
     Prediction,
     Role,
     TrainingFile,
@@ -154,6 +156,22 @@ class TestPredictRound:
         assert saved.estimated_log10 == 6.0
         assert saved.input == request
 
+    def test_unknown_categories_are_reported_as_warnings(self):
+        predict = self.build()
+        predict.execute(7, round_input(sector="Fintech"))
+        self.predictor.vocabularies[self.active.artifact_path] = ModelVocabulary(
+            stages=frozenset({"Seed"}), sectors=frozenset({"Fintech"}),
+            countries=frozenset({"Chile"}), cities=frozenset(), lead_investors=frozenset(),
+            news_sources=frozenset())
+
+        outcome = predict.execute(7, round_input(news_source="TechCrunch", country="Chile"))
+
+        assert outcome.warnings == [
+            CategoryWarning(code="unknown_category", field="news_source", value="TechCrunch")]
+
+    def test_known_categories_give_no_warnings(self):
+        assert self.build().execute(7, round_input()).warnings == []
+
     def test_known_company_domain_uses_stored_history(self):
         from datetime import date
 
@@ -258,24 +276,73 @@ class TestGetMetrics:
 
 
 class TestGetOptions:
-    def test_returns_the_distinct_known_values_sorted_without_nulls(self):
-        rounds = InMemoryFundingRoundRepository([
-            funding_round("r1", sector="Fintech", stage="Seed", country="Chile"),
-            funding_round("r2", sector="AI-native", stage="Series A", country="Brazil"),
-            funding_round("r3", sector="Fintech", stage="Seed", country=None),
-            funding_round("r4", sector=None, stage="Angel", country="Chile"),
-        ])
+    VOCAB = ModelVocabulary(
+        stages=frozenset({"Seed", "Angel"}), sectors=frozenset({"Fintech", "AI-native"}),
+        countries=frozenset({"Chile", "Brazil"}), cities=frozenset({"Santiago", "Sao Paulo"}),
+        lead_investors=frozenset({"Y Combinator", "Sequoia"}),
+        news_sources=frozenset({"techcrunch.com"}))
 
-        options = GetOptions(rounds).execute()
+    def build(self, rounds=None, vocabulary=None):
+        self.models = InMemoryModelVersionRepository()
+        self.active = add_active_model(self.models)
+        self.predictor = FakePredictor(vocabulary=vocabulary or self.VOCAB)
+        return GetOptions(self.models, self.predictor, InMemoryFundingRoundRepository(rounds))
 
+    def test_lists_come_from_the_active_model_sorted(self):
+        options = self.build().execute()
+
+        assert options.stages == ["Angel", "Seed"]
         assert options.sectors == ["AI-native", "Fintech"]
-        assert options.stages == ["Angel", "Seed", "Series A"]
         assert options.countries == ["Brazil", "Chile"]
+        assert options.lead_investors == ["Sequoia", "Y Combinator"]
+        assert options.news_sources == ["techcrunch.com"]
+        assert options.model_version == self.active.version
 
-    def test_works_without_rounds(self):
-        options = GetOptions(InMemoryFundingRoundRepository()).execute()
+    def test_values_only_in_the_database_are_not_offered(self):
+        options = self.build([funding_round("r1", sector="Biotech", stage="Series Z",
+                                            country="Peru", city="Lima")]).execute()
 
-        assert (options.sectors, options.stages, options.countries) == ([], [], [])
+        assert "Biotech" not in options.sectors and "Series Z" not in options.stages
+        assert "Peru" not in options.countries and options.cities_by_country == {}
+
+    def test_cities_by_country_pairs_come_from_rounds_filtered_by_the_model(self):
+        options = self.build([
+            funding_round("r1", country="Chile", city="Santiago"),
+            funding_round("r2", country="Chile", city="Santiago"),
+            funding_round("r3", country="Brazil", city="Sao Paulo"),
+            funding_round("r4", country="Chile", city="Sao Paulo"),
+            funding_round("r5", country="Chile", city="Valparaiso"),
+            funding_round("r6", country="Peru", city="Santiago"),
+            funding_round("r7", country="Chile", city=None),
+        ]).execute()
+
+        assert options.cities_by_country == {"Brazil": ["Sao Paulo"],
+                                             "Chile": ["Santiago", "Sao Paulo"]}
+
+    def test_follows_the_active_version_after_a_retrain_activates_another(self):
+        use_case = self.build()
+        new_vocab = ModelVocabulary(
+            stages=frozenset({"Seed"}), sectors=frozenset({"Biotech"}),
+            countries=frozenset({"Peru"}), cities=frozenset(), lead_investors=frozenset(),
+            news_sources=frozenset())
+        second = self.models.add(ModelVersion(
+            version=2, artifact_path="artifacts/v2.joblib", metrics=metrics(0.35),
+            n_train=1, n_test=1))
+        self.predictor.vocabularies[second.artifact_path] = new_vocab
+        before = use_case.execute()
+        self.models.activate(second.id)
+
+        after = use_case.execute()
+
+        assert (before.model_version, after.model_version) == (1, 2)
+        assert after.sectors == ["Biotech"] and before.sectors == ["AI-native", "Fintech"]
+
+    def test_without_an_active_model_it_is_unavailable(self):
+        use_case = GetOptions(InMemoryModelVersionRepository(), FakePredictor(),
+                              InMemoryFundingRoundRepository())
+
+        with pytest.raises(ModelNotAvailableError):
+            use_case.execute()
 
 
 def funding_round(round_id: str | None = "r1", **overrides) -> FundingRound:

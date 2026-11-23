@@ -53,16 +53,15 @@ def build_app(settings: Settings) -> FastAPI:
         settings.jwt_secret, settings.jwt_algorithm, settings.jwt_expire_minutes
     )
     parser = CsvRoundsParser()
+    predictor = SklearnPredictor(settings.artifacts_dir)
 
     use_cases = ApiUseCases(
         register_user=RegisterUser(users, hasher),
         login=Login(users, hasher, tokens),
-        predict_round=PredictRound(
-            models, SklearnPredictor(settings.artifacts_dir), predictions, rounds
-        ),
+        predict_round=PredictRound(models, predictor, predictions, rounds),
         list_predictions=ListPredictions(predictions),
         get_metrics=GetMetrics(models),
-        get_options=GetOptions(rounds),
+        get_options=GetOptions(models, predictor, rounds),
         upload_training_file=UploadTrainingFile(
             LocalFileStorage(settings.uploads_dir), parser, files, rounds
         ),

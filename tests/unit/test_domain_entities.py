@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from app.domain.entities import (
+    CategoryWarning,
     MODEL_FEATURE_COLUMNS,
     REQUIRED_TRAINING_COLUMNS,
     STAGE_RANK,
@@ -12,6 +13,7 @@ from app.domain.entities import (
     FundingRound,
     FundingRoundInput,
     ModelMetrics,
+    ModelVocabulary,
     should_activate,
 )
 from app.domain.errors import InvalidInputError
@@ -46,7 +48,7 @@ class TestFundingRoundInputToFeatures:
     def test_full_input_derives_the_14_model_columns_in_contract_order(self):
         round_input = make_input(
             city="New York", investor_count=3, lead_investor="Y Combinator", news_mentions=2,
-            news_source="TechCrunch", prev_rounds=1, prev_amount_usd=1_500_000,
+            news_source="techcrunch.com", prev_rounds=1, prev_amount_usd=1_500_000,
         )
 
         result = features(round_input)
@@ -65,7 +67,7 @@ class TestFundingRoundInputToFeatures:
             "country": "United States",
             "city": "New York",
             "lead_investor": "Y Combinator",
-            "news_source": "TechCrunch",
+            "news_source": "techcrunch.com",
         }
         assert tuple(result) == MODEL_FEATURE_COLUMNS
         assert len(MODEL_FEATURE_COLUMNS) == 14
@@ -192,3 +194,54 @@ def test_required_training_columns_exclude_leaky_and_optional_columns():
     assert "news_excerpt" not in REQUIRED_TRAINING_COLUMNS
     assert "company_domain" in REQUIRED_TRAINING_COLUMNS
     assert len(REQUIRED_TRAINING_COLUMNS) == 14
+
+
+class TestPreviousAmountImpliesAPreviousRound:
+    def test_prev_amount_without_prev_rounds_counts_one_round(self):
+        assert features(make_input(prev_amount_usd=1e6))["n_prev_rounds"] == 1
+
+    def test_prev_amount_with_zero_prev_rounds_counts_one_round(self):
+        assert features(make_input(prev_rounds=0, prev_amount_usd=1e6))["n_prev_rounds"] == 1
+
+    def test_prev_amount_keeps_a_larger_prev_rounds(self):
+        assert features(make_input(prev_rounds=3, prev_amount_usd=1e6))["n_prev_rounds"] == 3
+
+    def test_no_prev_amount_keeps_prev_rounds(self):
+        assert features(make_input(prev_rounds=2))["n_prev_rounds"] == 2
+        assert features(make_input())["n_prev_rounds"] == 0
+
+
+class TestCompanyDomainNormalization:
+    @pytest.mark.parametrize("raw", [
+        "Acme.IO", "  acme.io ", "https://acme.io", "http://www.acme.io/", "WWW.Acme.io",
+        "https://www.acme.io/about/team?x=1", "acme.io/",
+    ])
+    def test_variants_normalize_to_the_bare_domain(self, raw):
+        assert make_input(company_domain=raw).company_domain == "acme.io"
+
+    def test_blank_domain_after_normalization_is_null(self):
+        assert make_input(company_domain="https://").company_domain is None
+
+
+class TestModelVocabularyWarnings:
+    VOCAB = ModelVocabulary(
+        stages=frozenset({"Seed"}), sectors=frozenset({"Fintech"}),
+        countries=frozenset({"United States"}), cities=frozenset({"New York"}),
+        lead_investors=frozenset({"Y Combinator"}), news_sources=frozenset({"techcrunch.com"}))
+
+    def test_known_values_give_no_warnings(self):
+        known = make_input(city="New York", lead_investor="Y Combinator",
+                           news_source="techcrunch.com")
+        assert self.VOCAB.warnings_for(known) == []
+
+    def test_optional_nulls_give_no_warnings(self):
+        assert self.VOCAB.warnings_for(make_input()) == []
+
+    def test_one_warning_per_unknown_value_in_field_order(self):
+        unknown = make_input(stage="Series Z", sector="Quantum", country="Atlantis",
+                             city="Gotham", lead_investor="Nobody", news_source="TechCrunch")
+        assert self.VOCAB.warnings_for(unknown) == [
+            CategoryWarning(code="unknown_category", field=field, value=value)
+            for field, value in [("stage", "Series Z"), ("sector", "Quantum"),
+                                 ("country", "Atlantis"), ("city", "Gotham"),
+                                 ("lead_investor", "Nobody"), ("news_source", "TechCrunch")]]

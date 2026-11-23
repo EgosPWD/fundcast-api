@@ -14,10 +14,10 @@ from app.application.ports.token_service import TokenClaims
 from app.application.ports.trainer import TrainingResult
 from app.application.ports.training_data_parser import ParsedRounds
 from app.domain.entities import (
-    CategoryOptions,
     FundingRound,
     ModelMetrics,
     ModelVersion,
+    ModelVocabulary,
     Page,
     Prediction,
     TrainingFile,
@@ -139,12 +139,9 @@ class InMemoryFundingRoundRepository:
     def has_company(self, company_domain: str) -> bool:
         return any(r.company_domain == company_domain for r in self.rounds)
 
-    def category_options(self):
-        def distinct(name):
-            return list({getattr(r, name) for r in self.rounds if getattr(r, name) is not None})
-
-        return CategoryOptions(sectors=distinct("sector"), stages=distinct("stage"),
-                               countries=distinct("country"))
+    def city_countries(self) -> list[tuple[str, str]]:
+        return sorted({(r.city, r.country) for r in self.rounds
+                       if r.city is not None and r.country is not None})
 
     def history(self, company_domain: str, up_to_year: int):
         rows = [r for r in self.rounds if r.company_domain == company_domain and r.year <= up_to_year]
@@ -168,13 +165,22 @@ class FakeTokenService:
 
 
 class FakePredictor:
-    def __init__(self, log10_value: float = 6.0, lead_freq_map=None) -> None:
+    def __init__(self, log10_value: float = 6.0, lead_freq_map=None,
+                 vocabulary: ModelVocabulary | None = None) -> None:
         self.log10_value = log10_value
+        self.default_vocabulary = vocabulary or ModelVocabulary(
+            stages=frozenset({"Seed"}), sectors=frozenset({"Fintech"}),
+            countries=frozenset({"Chile", "United States"}), cities=frozenset(),
+            lead_investors=frozenset({"Y Combinator"}), news_sources=frozenset())
+        self.vocabularies: dict[str, ModelVocabulary] = {}
         self.lead_freq_map = {"Y Combinator": 41} if lead_freq_map is None else lead_freq_map
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def lead_frequency_map(self, artifact_path: str) -> dict[str, int]:
         return self.lead_freq_map
+
+    def vocabulary(self, artifact_path: str) -> ModelVocabulary:
+        return self.vocabularies.get(artifact_path, self.default_vocabulary)
 
     def predict_log10(self, artifact_path: str, features: dict[str, Any]) -> float:
         self.calls.append((artifact_path, features))

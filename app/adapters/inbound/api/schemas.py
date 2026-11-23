@@ -43,10 +43,16 @@ class PredictRequest(BaseModel):
     investor_count: int | None = Field(default=None, examples=[3])
     lead_investor: str | None = Field(default=None, examples=["Y Combinator"])
     news_mentions: int | None = Field(default=None, examples=[2])
-    news_source: str | None = Field(default=None, examples=["TechCrunch"])
+    news_source: str | None = Field(default=None, examples=["techcrunch.com"])
     company_domain: str | None = Field(default=None, examples=["acme.io"])
     prev_rounds: int | None = Field(default=None, examples=[1])
     prev_amount_usd: float | None = Field(default=None, examples=[1500000])
+
+
+class CategoryWarningSchema(BaseModel):
+    code: str = Field(description="`unknown_category`: the value is treated as unknown")
+    field: str
+    value: str
 
 
 class PredictResponse(BaseModel):
@@ -56,6 +62,9 @@ class PredictResponse(BaseModel):
     range_usd: tuple[float, float]
     model_version: int
     warning: str | None = None
+    warnings: list[CategoryWarningSchema] = Field(
+        default_factory=list,
+        description="One entry per categorical value the model does not know")
 
 
 class PredictionItem(BaseModel):
@@ -118,12 +127,16 @@ class RetrainResponse(BaseModel):
 
 
 class OptionsResponse(BaseModel):
-    """Values stored in the training data; send them as they are (case-sensitive). A value
-    from an upload the active model was not retrained with is treated as unknown."""
+    """Vocabulary of the ACTIVE model (sorted, case-sensitive); send values as they are.
+    Any other text is treated as unknown (average estimate) and reported in `warnings`."""
 
-    sectors: list[str]
     stages: list[str]
+    sectors: list[str]
     countries: list[str]
+    cities_by_country: dict[str, list[str]]
+    lead_investors: list[str]
+    news_sources: list[str]
+    model_version: int
 
 
 class HealthResponse(BaseModel):

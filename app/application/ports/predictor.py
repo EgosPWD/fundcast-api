@@ -1,6 +1,8 @@
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from app.domain.entities import ModelVocabulary
+
 
 class Predictor(Protocol):
     """Runs a trained model artifact on one row of model features."""
@@ -11,4 +13,8 @@ class Predictor(Protocol):
 
     def lead_frequency_map(self, artifact_path: str) -> Mapping[str, int]:
         """Rounds led per investor, as counted when this artifact was trained."""
+        ...
+
+    def vocabulary(self, artifact_path: str) -> ModelVocabulary:
+        """Categorical values this artifact saw in training (the imputer token excluded)."""
         ...

@@ -11,10 +11,10 @@ MINIMAL = {"year": 2025, "founded_year": 2021, "stage": "Seed", "sector": "Finte
            "country": "United States"}
 CONTRACT_EXAMPLE = {**MINIMAL, "city": "New York", "investor_count": 3,
                     "lead_investor": "Y Combinator", "news_mentions": 2,
-                    "news_source": "TechCrunch", "company_domain": "acme.io", "prev_rounds": 1,
+                    "news_source": "techcrunch.com", "company_domain": "acme.io", "prev_rounds": 1,
                     "prev_amount_usd": 1500000}
 RESPONSE_FIELDS = {"prediction_id", "estimated_amount_usd", "estimated_log10", "range_usd",
-                   "model_version", "warning"}
+                   "model_version", "warning", "warnings"}
 
 
 def assert_valid_estimate(body: dict) -> None:
@@ -182,13 +182,50 @@ def test_history_with_invalid_paging_returns_422(api, user_headers, params, mess
     assert response.json() == {"detail": message}
 
 
-def test_options_lists_the_known_categories_for_the_form(api, user_headers):
+def test_options_come_from_the_active_model_with_cities_by_country(api, user_headers):
     response = api.client.get("/options", headers=user_headers)
 
     assert response.status_code == 200
-    assert response.json() == {"sectors": ["AI-native", "Fintech"],
-                               "stages": ["Seed", "Series A"],
-                               "countries": ["Chile", "United States"]}
+    body = response.json()
+    assert set(body) == {"stages", "sectors", "countries", "cities_by_country",
+                         "lead_investors", "news_sources", "model_version"}
+    assert body["model_version"] == 1
+    for key in ("stages", "sectors", "countries", "lead_investors", "news_sources"):
+        assert body[key] == sorted(body[key]) and "Unknown" not in body[key]
+    assert {"Seed", "Series A"} <= set(body["stages"])
+    assert "Fintech" in body["sectors"] and "United States" in body["countries"]
+    assert "Y Combinator" in body["lead_investors"]
+    assert "techcrunch.com" in body["news_sources"] and "TechCrunch" not in body["news_sources"]
+    # Only the (city, country) pairs stored in funding_rounds that the model knows.
+    assert body["cities_by_country"]["Chile"] == ["Santiago"]
+    assert body["cities_by_country"]["United States"] == ["New York"]
+    assert "Atlantis City" not in str(body["cities_by_country"])  # country is null
+    assert "Gotham" not in str(body["cities_by_country"])  # the model does not know it
+
+
+def test_predict_warns_about_each_unknown_category(api, user_headers):
+    payload = {**MINIMAL, "news_source": "TechCrunch", "city": "Nowhereville"}
+
+    response = api.client.post("/predict", json=payload, headers=user_headers)
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == [
+        {"code": "unknown_category", "field": "city", "value": "Nowhereville"},
+        {"code": "unknown_category", "field": "news_source", "value": "TechCrunch"}]
+
+
+def test_predict_without_unknown_categories_has_empty_warnings(api, user_headers):
+    response = api.client.post("/predict", json=CONTRACT_EXAMPLE, headers=user_headers)
+
+    assert response.json()["warnings"] == []
+
+
+def test_predict_normalizes_company_domain_before_storing(api, user_headers):
+    payload = {**MINIMAL, "company_domain": "https://WWW.Acme.io/"}
+
+    api.client.post("/predict", json=payload, headers=user_headers)
+
+    assert api.predictions.items[-1].input.company_domain == "acme.io"
 
 
 def test_options_requires_a_token(api):

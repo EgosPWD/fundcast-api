@@ -212,19 +212,17 @@ def funding_round(round_id, domain="acme.io", year=2024, month=1, amount=1_000_0
 
 
 class TestFundingRoundRepository:
-    def test_category_options_are_distinct_and_skip_nulls(self, session_factory):
+    def test_city_countries_are_distinct_pairs_without_nulls(self, session_factory):
         repo = SqlAlchemyFundingRoundRepository(session_factory)
         repo.add_many([
-            funding_round("r1", sector="Fintech", stage="Seed", country="Chile"),
-            funding_round("r2", sector="AI-native", stage="Series A", country=None),
-            funding_round("r3", sector=None, stage="Seed", country="Chile"),
+            funding_round("r1", country="Chile", city="Santiago"),
+            funding_round("r2", country="Chile", city="Santiago"),
+            funding_round("r3", country="Chile", city=None),
+            funding_round("r4", country=None, city="Lima"),
+            funding_round("r5", country="Peru", city="Lima"),
         ])
 
-        options = repo.category_options()
-
-        assert sorted(options.sectors) == ["AI-native", "Fintech"]
-        assert sorted(options.stages) == ["Seed", "Series A"]
-        assert sorted(options.countries) == ["Chile"]
+        assert sorted(repo.city_countries()) == [("Lima", "Peru"), ("Santiago", "Chile")]
 
     def test_add_many_keeps_file_order_and_skips_repeated_round_ids(self, session_factory):
         repo = SqlAlchemyFundingRoundRepository(session_factory)

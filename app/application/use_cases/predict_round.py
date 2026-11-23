@@ -1,10 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.application.ports.funding_round_repo import FundingRoundRepository
 from app.application.ports.model_repo import ModelVersionRepository
 from app.application.ports.prediction_repo import PredictionRepository
 from app.application.ports.predictor import Predictor
-from app.domain.entities import CompanyHistory, Estimate, FundingRoundInput, Prediction
+from app.domain.entities import (
+    CategoryWarning,
+    CompanyHistory,
+    Estimate,
+    FundingRoundInput,
+    Prediction,
+)
 from app.domain.errors import ModelNotAvailableError
 
 
@@ -13,6 +19,7 @@ class PredictionOutcome:
     prediction: Prediction
     estimate: Estimate
     model_version: int
+    warnings: list[CategoryWarning] = field(default_factory=list)
 
 
 class PredictRound:
@@ -45,7 +52,8 @@ class PredictRound:
                 estimated_log10=estimate.estimated_log10,
             )
         )
-        return PredictionOutcome(prediction, estimate, active.version)
+        warnings = self._predictor.vocabulary(active.artifact_path).warnings_for(round_input)
+        return PredictionOutcome(prediction, estimate, active.version, warnings)
 
     def _company_history(self, round_input: FundingRoundInput) -> CompanyHistory | None:
         """Stored rounds win over the client's values when the company is known.

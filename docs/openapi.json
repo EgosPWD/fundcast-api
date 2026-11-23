@@ -296,7 +296,7 @@
           "predictions"
         ],
         "summary": "Get Options",
-        "description": "Sectors, stages and countries stored in funding_rounds, for the prediction form.\n\nOffer them as a closed list: the model matches categories by exact text, and any other\ntext is treated as unknown (average estimate). A value that only a recent upload brought\ncan appear here before an active model was retrained with it.",
+        "description": "Categories of the active model for the prediction form, plus the cities of each country.\n\nOffer them as closed lists: the model matches categories by exact text, and any other\ntext is treated as unknown. After a retrain activates a new version the lists change.",
         "operationId": "get_options_options_get",
         "responses": {
           "200": {
@@ -536,6 +536,30 @@
         ],
         "title": "Body_upload_training_file_training_files_post"
       },
+      "CategoryWarningSchema": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "`unknown_category`: the value is treated as unknown"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "field",
+          "value"
+        ],
+        "title": "CategoryWarningSchema"
+      },
       "ErrorResponse": {
         "properties": {
           "detail": {
@@ -703,13 +727,6 @@
       },
       "OptionsResponse": {
         "properties": {
-          "sectors": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Sectors"
-          },
           "stages": {
             "items": {
               "type": "string"
@@ -717,22 +734,61 @@
             "type": "array",
             "title": "Stages"
           },
+          "sectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sectors"
+          },
           "countries": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Countries"
+          },
+          "cities_by_country": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Cities By Country"
+          },
+          "lead_investors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lead Investors"
+          },
+          "news_sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "News Sources"
+          },
+          "model_version": {
+            "type": "integer",
+            "title": "Model Version"
           }
         },
         "type": "object",
         "required": [
-          "sectors",
           "stages",
-          "countries"
+          "sectors",
+          "countries",
+          "cities_by_country",
+          "lead_investors",
+          "news_sources",
+          "model_version"
         ],
         "title": "OptionsResponse",
-        "description": "Values stored in the training data; send them as they are (case-sensitive). A value\nfrom an upload the active model was not retrained with is treated as unknown."
+        "description": "Vocabulary of the ACTIVE model (sorted, case-sensitive); send values as they are.\nAny other text is treated as unknown (average estimate) and reported in `warnings`."
       },
       "PredictRequest": {
         "properties": {
@@ -838,7 +894,7 @@
             ],
             "title": "News Source",
             "examples": [
-              "TechCrunch"
+              "techcrunch.com"
             ]
           },
           "company_domain": {
@@ -937,6 +993,14 @@
               }
             ],
             "title": "Warning"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryWarningSchema"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "One entry per categorical value the model does not know"
           }
         },
         "type": "object",

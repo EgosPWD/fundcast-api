@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.adapters.inbound.api import deps
 from app.adapters.inbound.api.schemas import (
+    CategoryWarningSchema,
     ErrorResponse,
     PredictionItem,
     PredictionPage,
@@ -34,6 +35,8 @@ def predict(body: PredictRequest, claims: AnyUser,
         range_usd=estimate.range_usd,
         model_version=outcome.model_version,
         warning=estimate.warning,
+        warnings=[CategoryWarningSchema(code=w.code, field=w.field, value=w.value)
+                  for w in outcome.warnings],
     )
 
 
