@@ -55,23 +55,26 @@ Mapa `stage_rank` (textos exactos, tras el `strip`; el resto de etapas queda nul
   "year": 2025, "founded_year": 2021, "stage": "Seed", "sector": "Fintech",
   "country": "United States", "city": "New York",
   "investor_count": 3, "lead_investor": "Y Combinator",
-  "news_mentions": 2, "news_source": "TechCrunch",
+  "news_mentions": 2, "news_source": "techcrunch.com",
   "company_domain": "acme.io", "prev_rounds": 1, "prev_amount_usd": 1500000
 }
 ```
 Obligatorios: `year, founded_year, stage, sector, country`. El resto es opcional.
+Los textos categóricos (`stage, sector, country, city, lead_investor, news_source`) se comparan **tal cual** con el vocabulario del modelo activo (`news_source` son dominios, p. ej. `techcrunch.com`). `GET /options` lista ese vocabulario; lo que no esté se trata como desconocido y se avisa en `warnings`.
 
 Derivaciones:
 - `company_age = year - founded_year`; `stage_rank = stage_rank_map[stage]` o null.
-- Si llega `company_domain` **y existe** en `funding_rounds`: `n_prev_rounds` y `prev_log_amount` se calculan desde la tabla, con las rondas de esa empresa cuyo `year <= year` de la predicción (supuesto: todas las rondas conocidas hasta ese año son "anteriores"). `prev_log_amount` = `log10` del último monto > 0 por `announced_date`.
-- Si no: `n_prev_rounds = prev_rounds` o 0; `prev_log_amount = log10(prev_amount_usd)` o null.
+- `company_domain` se normaliza antes de usarse: minúsculas, sin espacios, sin `http(s)://`, sin `www.`, sin ruta ni `/` final.
+- Si llega `company_domain` **y existe** en `funding_rounds`: `n_prev_rounds` y `prev_log_amount` se calculan desde la tabla, con las rondas de esa empresa cuyo `year <= year` de la predicción (supuesto: todas las rondas conocidas hasta ese año son "anteriores"; la ronda que se predice es nueva). `prev_log_amount` = `log10` del último monto > 0 por `announced_date`.
+- Si no: `n_prev_rounds = prev_rounds` o 0, y como mínimo 1 si llega `prev_amount_usd`; `prev_log_amount = log10(prev_amount_usd)` o null.
 - `lead_freq = lead_freq_map.get(lead_investor, 0) + 1` (el `+1` es porque en el entrenamiento la propia ronda cuenta), usando el `lead_freq_map` del modelo **activo**; null si no hay `lead_investor`.
 
 **Respuesta:**
 ```json
 { "prediction_id": 12, "estimated_amount_usd": 4150000, "estimated_log10": 6.62,
-  "range_usd": [2100000, 8200000], "model_version": 3, "warning": null }
+  "range_usd": [2100000, 8200000], "model_version": 3, "warning": null, "warnings": [] }
 ```
+`warnings` trae un elemento por cada valor categórico que el modelo no conoce, p. ej. `{"code": "unknown_category", "field": "city", "value": "Gotham"}`; el cliente escribe el mensaje.
 `range_usd` = estimado × / ÷ 1,5 (≈ error mediano del 50 %). `warning` avisa si `stage == "Undisclosed"`: el modelo falla más ahí (MdAPE ≈ 71 %).
 
 ## 4. Limpieza y entrenamiento (reproducen el notebook; verificado)
@@ -155,6 +158,7 @@ fundcast-api/
 | GET | `/metrics` | user, admin | métricas de la versión activa e historial de versiones |
 | POST | `/training-files` | admin | sube un CSV: se valida y sus filas se insertan en `funding_rounds` |
 | POST | `/retrain` | admin | reentrena con **todas** las filas de `funding_rounds` (partición nueva) |
+| GET | `/options` | user, admin | vocabulario del modelo ACTIVO para el formulario: `stages`, `sectors`, `countries`, `cities_by_country`, `lead_investors`, `news_sources`, `model_version` (listas ordenadas; cambia al activarse un reentrenamiento) |
 | GET | `/health` | público | estado |
 
 Errores: 401 sin token, 403 sin permiso, 422 entrada inválida (en `/retrain`, también si no hay filas suficientes para la partición estratificada), 409 si ya hay un reentrenamiento en curso.
