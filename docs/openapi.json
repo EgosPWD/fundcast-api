@@ -3,7 +3,7 @@
   "info": {
     "title": "Startup Funding API",
     "description": "Estimates the USD amount of a startup funding round.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/health": {
