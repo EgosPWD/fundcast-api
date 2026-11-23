@@ -1,0 +1,76 @@
+# Production stack for Dokploy. The local stack stays in docker-compose.yml.
+# Dokploy re-clones the repository on every deploy, so nothing persistent lives in the
+# checkout: models and uploads use named volumes, and the optional seed CSV is read from
+# ../files/seed, the folder Dokploy keeps between deploys. See README.md, "Despliegue en Dokploy".
+#
+# Dokploy panel variables only interpolate this file; they are not injected into the
+# containers by themselves. Every variable the API reads is therefore listed below.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: startups
+      POSTGRES_USER: startups
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - fundcast-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U startups -d startups"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - backend
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://startups:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/startups
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (at least 32 characters)}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required (the web client origin)}
+      ARTIFACTS_DIR: /srv/artifacts
+      UPLOADS_DIR: /srv/data/uploads
+      # Empty, or a file missing from ../files/seed, skips the seed.
+      SEED_DATASET_PATH: ${SEED_DATASET_PATH:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # A new named volume starts as a copy of the image's /srv/artifacts, which holds
+      # the baseline model; retrained versions are written next to it and survive deploys.
+      - fundcast-artifacts:/srv/artifacts
+      - fundcast-uploads:/srv/data/uploads
+      - ../files/seed:/srv/seed:ro
+    # Dokploy attaches dokploy-network to this service when a domain is assigned, so
+    # Traefik reaches the API; the database stays only on the internal network.
+    networks:
+      - backend
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      # Migrations and the first seed of the CSV run before the API answers.
+      start_period: 120s
+    restart: unless-stopped
+
+networks:
+  # internal: no route to the outside; only the API and the database share it.
+  backend:
+    internal: true
+
+volumes:
+  fundcast-pgdata:
+  fundcast-artifacts:
+  fundcast-uploads:
